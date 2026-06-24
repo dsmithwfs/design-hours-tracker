@@ -27,6 +27,10 @@ function SetCell($ws, $row, $col, $val) {
     }
 }
 
+# Designer name (B6) and employee number (K4)
+if ($data.designerName) { SetCell $ws 6 2 "$($data.designerName)" }
+if ($data.employeeNum)  { SetCell $ws 4 11 "$($data.employeeNum)"  }
+
 # Clear week ending then set new value
 SetCell $ws 6 11 ""
 SetCell $ws 6 11 $data.weekEnding

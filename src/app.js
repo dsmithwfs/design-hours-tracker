@@ -146,6 +146,18 @@ let currentYear, currentMonth, selectedDate = null, currentWeekStart = null;
       track.classList.toggle('on', autoStart);
     });
 
+    // Profile fields
+    const nameInput = document.getElementById('designerNameInput');
+    const empInput  = document.getElementById('employeeNumInput');
+    if (nameInput) {
+      nameInput.value = localStorage.getItem('dht_designer_name') || '';
+      nameInput.addEventListener('input', () => localStorage.setItem('dht_designer_name', nameInput.value));
+    }
+    if (empInput) {
+      empInput.value = localStorage.getItem('dht_employee_num') || '';
+      empInput.addEventListener('input', () => localStorage.setItem('dht_employee_num', empInput.value));
+    }
+
     toggleBtn.addEventListener('click', e => {
       e.stopPropagation();
       panel.classList.toggle('open');
@@ -228,6 +240,43 @@ function jobKey(j) {
   return jobLabel(j);
 }
 
+// ── US Holidays ────────────────────────────────────────────────────────────
+function getUSHolidays(year) {
+  const h = {};
+  const key = (m, d) => `${year}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const nthWeekday = (month, nth, dow) => {
+    const d = new Date(year, month - 1, 1);
+    let count = 0;
+    while (d.getMonth() === month - 1) {
+      if (d.getDay() === dow && ++count === nth) return d.getDate();
+      d.setDate(d.getDate() + 1);
+    }
+  };
+  const lastWeekday = (month, dow) => {
+    const d = new Date(year, month, 0);
+    while (d.getDay() !== dow) d.setDate(d.getDate() - 1);
+    return d.getDate();
+  };
+  const observed = (month, day) => {
+    const dow = new Date(year, month - 1, day).getDay();
+    if (dow === 0) return key(month, day + 1);
+    if (dow === 6) return key(month, day - 1);
+    return key(month, day);
+  };
+  h[observed(1,  1)]                  = "New Year's Day";
+  h[key(1, nthWeekday(1, 3, 1))]     = 'MLK Day';
+  h[key(2, nthWeekday(2, 3, 1))]     = "Presidents' Day";
+  h[key(5, lastWeekday(5, 1))]        = 'Memorial Day';
+  h[observed(6, 19)]                  = 'Juneteenth';
+  h[observed(7,  4)]                  = 'Independence Day';
+  h[key(9, nthWeekday(9, 1, 1))]     = 'Labor Day';
+  h[key(10, nthWeekday(10, 2, 1))]   = 'Columbus Day';
+  h[observed(11, 11)]                 = 'Veterans Day';
+  h[key(11, nthWeekday(11, 4, 4))]   = 'Thanksgiving';
+  h[observed(12, 25)]                 = 'Christmas Day';
+  return h;
+}
+
 // ── Calendar ───────────────────────────────────────────────────────────────
 function renderCalendar() {
   const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -248,6 +297,7 @@ function renderCalendar() {
   const daysInPrev = new Date(currentYear, currentMonth, 0).getDate();
   const today = toKey(new Date());
   const allEntries = S.entries;
+  const holidays = getUSHolidays(currentYear);
 
   for (let i = firstDay - 1; i >= 0; i--) {
     const el = document.createElement('div');
@@ -262,16 +312,19 @@ function renderCalendar() {
     const total = dayTotalHours(dayEntries);
     const names = [...new Set(dayEntries.map(e => e.job || e.type).filter(Boolean))];
 
+    const holiday = holidays[key];
     const el = document.createElement('div');
     el.className = 'cal-day'
       + (key === today ? ' today' : '')
       + (dayEntries.length ? ' has-entry' : '')
-      + (key === selectedDate ? ' selected' : '');
+      + (key === selectedDate ? ' selected' : '')
+      + (holiday ? ' holiday' : '');
     el.dataset.key = key;
     el.innerHTML = `
       <span class="day-num">${d}</span>
       ${total > 0 ? `<div class="day-hours">${total}h</div>` : ''}
       <div class="day-jobs">${names.map(j => `<span class="job-dot">${j}</span>`).join('')}</div>
+      ${holiday ? `<div class="day-holiday">${holiday}</div>` : ''}
     `;
     el.addEventListener('click', () => selectDate(key));
     if (dayEntries.length) {
@@ -1198,9 +1251,11 @@ function exportTimesheetJson() {
   const pad2 = n => String(n).padStart(2, '0');
   const weekEndingStr = `${pad2(weekEnding.getMonth()+1)}/${pad2(weekEnding.getDate())}/${weekEnding.getFullYear()}`;
 
-  const mileage  = getMileageEntries().filter(e => parseFloat(e.miles) > 0);
-  const expenses = getExpenseEntries().filter(e => parseFloat(e.amount) > 0 || e.description);
-  const payload  = { weekEnding: weekEndingStr, jobs: jobRows, special, mileage, expenses };
+  const mileage      = getMileageEntries().filter(e => parseFloat(e.miles) > 0);
+  const expenses     = getExpenseEntries().filter(e => parseFloat(e.amount) > 0 || e.description);
+  const designerName = localStorage.getItem('dht_designer_name') || '';
+  const employeeNum  = localStorage.getItem('dht_employee_num')  || '';
+  const payload  = { weekEnding: weekEndingStr, jobs: jobRows, special, mileage, expenses, designerName, employeeNum };
 
   // In Electron: invoke PS1 directly — no file download needed
   if (window.electronAPI) {

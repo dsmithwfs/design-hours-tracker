@@ -1,6 +1,6 @@
-{
+﻿{
   "name": "design-hours-tracker",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Design Hours Tracker for Wiginton Corporation",
   "main": "main.js",
   "scripts": {
@@ -65,3 +65,4 @@
     }
   }
 }
+
