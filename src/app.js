@@ -1715,6 +1715,11 @@ function doImport(data, isBackup, mode) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '1.4.3', date: '2026-06-24', changes: [
+    'Fixed version badge showing stale version number on web app',
+    'Fixed changelog missing v1.4.1 and v1.4.2 entries',
+    'Removed private repo flag from auto-updater config (repo is public)',
+  ]},
   { version: '1.4.2', date: '2026-06-24', changes: [
     'Added US federal holidays to the calendar with observed-date logic',
     'Added Designer Name and Employee # fields in Settings — auto-fill the Excel timesheet',
