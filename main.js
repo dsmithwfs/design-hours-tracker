@@ -8,7 +8,6 @@ const { spawn } = require('child_process');
 // ── Auto-updater ───────────────────────────────────────────────────────────
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
-autoUpdater.requestHeaders = { Authorization: 'token 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' };
 autoUpdater.on('error', () => {}); // silently ignore network/offline errors
 
 autoUpdater.on('update-downloaded', () => {
