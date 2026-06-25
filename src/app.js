@@ -1,3 +1,29 @@
+// ── Toast notification ─────────────────────────────────────────────────────
+let _toastTimer = null;
+function showToast(msg, duration = 4000, action = null) {
+  let toast = document.getElementById('dht-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'dht-toast';
+    document.body.appendChild(toast);
+  }
+  clearTimeout(_toastTimer);
+  toast.innerHTML = '';
+  const msgEl = document.createElement('span');
+  msgEl.className = 'dht-toast-msg';
+  msgEl.textContent = msg;
+  toast.appendChild(msgEl);
+  if (action) {
+    const btn = document.createElement('button');
+    btn.className = 'dht-toast-action';
+    btn.textContent = action.label;
+    btn.addEventListener('click', () => { action.fn(); toast.className = 'dht-toast'; });
+    toast.appendChild(btn);
+  }
+  toast.className = 'dht-toast dht-toast-in';
+  _toastTimer = setTimeout(() => { toast.className = 'dht-toast'; }, duration);
+}
+
 // ── Theme ──────────────────────────────────────────────────────────────────
 (function initTheme() {
   const saved = localStorage.getItem('dht_theme') || 'light';
@@ -43,6 +69,7 @@ const S = {
 };
 
 let currentYear, currentMonth, selectedDate = null, currentWeekStart = null;
+let _showArchivedJobs = false;
 
 // ── Init ───────────────────────────────────────────────────────────────────
 (function init() {
@@ -70,7 +97,7 @@ let currentYear, currentMonth, selectedDate = null, currentWeekStart = null;
     selectDate(toKey(now));
   });
 
-  const TAB_IDS = ['month', 'week', 'jobs', 'rates'];
+  const TAB_IDS = ['month', 'week', 'jobs', 'rates', 'notes', 'map', 'dashboard'];
   document.querySelectorAll('.tab').forEach(btn => {
     btn.addEventListener('click', () => {
       const next = btn.dataset.tab;
@@ -85,9 +112,12 @@ let currentYear, currentMonth, selectedDate = null, currentWeekStart = null;
 
       const show = () => {
         if (next === 'week') renderWeeklySummary();
+        if (next === 'notes') renderNotes();
         inEl.style.display   = '';
         inEl.style.opacity   = '0';
         inEl.style.transform = 'translateY(6px)';
+        if (next === 'map')       setTimeout(renderMap, 60);
+        if (next === 'dashboard') setTimeout(renderDashboard, 60);
         requestAnimationFrame(() => requestAnimationFrame(() => {
           inEl.style.opacity   = '1';
           inEl.style.transform = 'translateY(0)';
@@ -111,13 +141,30 @@ let currentYear, currentMonth, selectedDate = null, currentWeekStart = null;
   document.getElementById('addJobBtn').addEventListener('click', addJob);
   document.getElementById('newJobNumber').addEventListener('keydown', e => { if (e.key === 'Enter') addJob(); });
   document.getElementById('newJobInput').addEventListener('keydown', e => { if (e.key === 'Enter') addJob(); });
+  document.getElementById('importJobsBtn').addEventListener('click', () => document.getElementById('importJobsFile').click());
+  document.getElementById('importJobsFile').addEventListener('change', handleJobImportFile);
   document.getElementById('exportCsv').addEventListener('click', exportCsv);
   document.getElementById('exportJson').addEventListener('click', exportJson);
   document.getElementById('exportBackupBtn').addEventListener('click', exportBackup);
   document.getElementById('importBackupBtn').addEventListener('click', importBackup);
   document.getElementById('exportTimesheetBtn').addEventListener('click', () => exportTimesheetJson());
+  document.getElementById('exportPdfBtn')?.addEventListener('click', () => exportTimesheetPdf());
   document.getElementById('addMileageBtn').addEventListener('click', addMileageEntry);
   document.getElementById('addExpenseBtn').addEventListener('click', addExpenseEntry);
+
+  // ── PDF export button (Electron only)
+  if (window.electronAPI) {
+    const pdfBtn = document.getElementById('exportPdfBtn');
+    if (pdfBtn) pdfBtn.style.display = '';
+  }
+
+
+
+  // ── Offline indicator
+  initOfflineDot();
+
+  // ── Web/mobile daily reminder
+  if (!window.electronAPI) initWebReminder();
 
   // Settings bar (Electron only)
   if (window.electronAPI) {
@@ -132,6 +179,8 @@ let currentYear, currentMonth, selectedDate = null, currentWeekStart = null;
     let autoStart    = false;
 
     bar.style.display = 'block';
+    const helpBar = document.getElementById('helpBar');
+    if (helpBar) helpBar.style.display = 'block';
 
     window.electronAPI.getVersion().then(v => {
       const el = document.getElementById('electronVersion');
@@ -182,7 +231,65 @@ let currentYear, currentMonth, selectedDate = null, currentWeekStart = null;
       savedLabel.textContent = 'Saved!';
       setTimeout(() => { savedLabel.textContent = ''; panel.classList.remove('open'); }, 1500);
     });
+
+    const checkUpdateBtn = document.getElementById('checkUpdateBtn');
+    if (checkUpdateBtn) {
+      checkUpdateBtn.addEventListener('click', async () => {
+        checkUpdateBtn.disabled = true;
+        checkUpdateBtn.textContent = 'Checking…';
+        const result = await window.electronAPI.checkForUpdates();
+        checkUpdateBtn.disabled = false;
+        checkUpdateBtn.textContent = 'Check for updates';
+        if (result === 'latest')    showToast('You\'re on the latest version.', 4000);
+        else if (result === 'available') showToast('Update found — downloading…', 5000);
+        else if (result === 'dev')  showToast('Running in dev mode — updates disabled.', 4000);
+        else if (result === 'checking') showToast('Already checking for updates…', 3000);
+        else showToast('Could not check for updates. Check your connection.', 5000);
+      });
+    }
   }
+
+  // Wire static HTML elements that previously used inline onclick
+  document.getElementById('versionBtn')?.addEventListener('click', showChangelog);
+  document.getElementById('changelogBackdrop')?.addEventListener('click', hideChangelog);
+  document.getElementById('changelogCloseBtn')?.addEventListener('click', hideChangelog);
+  document.querySelectorAll('.sync-signin-btn').forEach(el => el.addEventListener('click', () => window.openSyncModal?.()));
+  document.querySelectorAll('.sync-signout-btn').forEach(el => el.addEventListener('click', () => window.syncSignOut?.()));
+
+  // Event delegation for dynamically rendered content
+  document.addEventListener('click', function(e) {
+    var t = e.target.closest('[data-action]');
+    if (!t) return;
+    var a = t.dataset.action;
+    var idx = t.dataset.idx !== undefined ? +t.dataset.idx : 0;
+    var key = t.dataset.key || '';
+    if (a === 'show-help')           showHelp();
+    else if (a === 'open-note')      openNoteEditor(t.dataset.id);
+    else if (a === 'del-note')       deleteNote(t.dataset.id);
+    else if (a === 'toggle-job-notes') toggleJobNotes(idx);
+    else if (a === 'geocode-job')    geocodeJobAddress(idx);
+    else if (a === 'show-entry')     showEntryDetail(key, idx);
+    else if (a === 'del-entry')   deleteEntry(key, idx);
+    else if (a === 'edit-job')    openJobEdit(idx);
+    else if (a === 'rm-job')      removeJob(idx);
+    else if (a === 'set-budget')  setBudget(idx);
+    else if (a === 'save-budget') saveBudget(idx);
+    else if (a === 'cancel-job-edit') renderJobsList();
+    else if (a === 'save-job-edit')   saveJobEdit(idx);
+    else if (a === 'archive-job')     archiveJob(idx);
+    else if (a === 'unarchive-job')   unarchiveJob(idx);
+    else if (a === 'duplicate-job')   duplicateJob(idx);
+    else if (a === 'rm-rate')     removeRate(idx);
+    else if (a === 'save-rate')   saveRate(idx);
+  });
+
+  document.addEventListener('focusout', function(e) {
+    if (e.target.classList.contains('job-notes-input')) {
+      const i = +e.target.dataset.idx;
+      const jobs = S.jobs;
+      if (jobs[i]) { jobs[i].notes = e.target.value; S.jobs = jobs; }
+    }
+  });
 
   renderCalendar();
   renderSummary();
@@ -240,6 +347,42 @@ function jobKey(j) {
   return jobLabel(j);
 }
 
+function jobGroup(j) {
+  if (!j.number) return 'other';
+  if (j.number.startsWith('181')) return '181';
+  if (j.number.startsWith('187')) return '187';
+  return 'other';
+}
+
+// Stable color slot 0-7 for a job key string (used for per-job coloring)
+function jobColorIndex(key) {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return h % 8;
+}
+
+function buildJobOptions() {
+  const groups = { '181': [], '187': [], other: [] };
+  const sorted = [...S.jobs].sort((a, b) => {
+    if (!a.number && !b.number) return 0;
+    if (!a.number) return 1;
+    if (!b.number) return -1;
+    return a.number.localeCompare(b.number, undefined, { numeric: true, sensitivity: 'base' });
+  });
+  sorted.forEach(j => groups[jobGroup(j)].push(j));
+  let html = '';
+  if (groups['181'].length) {
+    html += `<optgroup label="181 – Contract">${groups['181'].map(j => `<option value="${esc(jobKey(j))}">${esc(jobLabel(j))}</option>`).join('')}</optgroup>`;
+  }
+  if (groups['187'].length) {
+    html += `<optgroup label="187 – Express">${groups['187'].map(j => `<option value="${esc(jobKey(j))}">${esc(jobLabel(j))}</option>`).join('')}</optgroup>`;
+  }
+  if (groups.other.length) {
+    html += `<optgroup label="Other">${groups.other.map(j => `<option value="${esc(jobKey(j))}">${esc(jobLabel(j))}</option>`).join('')}</optgroup>`;
+  }
+  return html;
+}
+
 // ── US Holidays ────────────────────────────────────────────────────────────
 function getUSHolidays(year) {
   const h = {};
@@ -260,7 +403,11 @@ function getUSHolidays(year) {
   const observed = (month, day) => {
     const dow = new Date(year, month - 1, day).getDay();
     if (dow === 0) return key(month, day + 1);
-    if (dow === 6) return key(month, day - 1);
+    if (dow === 6) {
+      // Saturday: observe on Friday — use Date to handle month boundary (e.g. Jan 1)
+      const fri = new Date(year, month - 1, day - 1);
+      return `${fri.getFullYear()}-${String(fri.getMonth()+1).padStart(2,'0')}-${String(fri.getDate()).padStart(2,'0')}`;
+    }
     return key(month, day);
   };
   h[observed(1,  1)]                  = "New Year's Day";
@@ -323,7 +470,7 @@ function renderCalendar() {
     el.innerHTML = `
       <span class="day-num">${d}</span>
       ${total > 0 ? `<div class="day-hours">${total}h</div>` : ''}
-      <div class="day-jobs">${names.map(j => `<span class="job-dot">${j}</span>`).join('')}</div>
+      <div class="day-jobs">${names.map(j => `<span class="job-dot" style="background:var(--job-color-${jobColorIndex(j)})">${j}</span>`).join('')}</div>
       ${holiday ? `<div class="day-holiday">${holiday}</div>` : ''}
     `;
     el.addEventListener('click', () => selectDate(key));
@@ -381,7 +528,7 @@ function renderSidePanel(key) {
       <div class="form-group">
         <label>Job</label>
         <select id="entryJob">
-          ${S.jobs.map(j => `<option value="${esc(jobKey(j))}">${esc(jobLabel(j))}</option>`).join('')}
+          ${buildJobOptions()}
         </select>
       </div>
       <div class="form-group">
@@ -437,13 +584,14 @@ function renderEntries(key, dayEntries) {
   list.innerHTML = dayEntries.map((e, i) => {
     const isSpecial = !!e.type;
     const label = isSpecial ? SPECIAL_LABELS[e.type] || e.type : esc(e.job);
+    const colorStyle = isSpecial ? '' : `border-left: 3px solid var(--job-color-${jobColorIndex(e.job)});`;
     return `
-    <div class="entry-card${isSpecial ? ' entry-card-special' : ''}" onclick="showEntryDetail('${key}', ${i})">
+    <div class="entry-card${isSpecial ? ' entry-card-special' : ''}" style="${colorStyle}" data-action="show-entry" data-key="${key}" data-idx="${i}">
       <div class="entry-card-top">
         <span class="entry-job">${label}</span>
         <span style="display:flex;align-items:center;gap:6px;">
           <span class="entry-hours">${e.hours}h</span>
-          <button class="btn btn-danger" onclick="event.stopPropagation();deleteEntry('${key}', ${i})">✕</button>
+          <button class="btn btn-danger" data-action="del-entry" data-key="${key}" data-idx="${i}">✕</button>
         </span>
       </div>
       ${!isSpecial && e.costCode ? `<div class="entry-cost-code">${esc(e.costCode)}</div>` : ''}
@@ -483,7 +631,7 @@ function addEntry(key) {
 function deleteEntry(key, index) {
   const all = S.entries;
   if (!all[key]) return;
-  all[key].splice(index, 1);
+  const removed = all[key].splice(index, 1)[0];
   if (!all[key].length) delete all[key];
   S.entries = all;
 
@@ -492,6 +640,17 @@ function deleteEntry(key, index) {
   renderWeeklySummary();
   renderJobsList();
   renderSidePanel(key);
+
+  showToast('Entry deleted.', 5000, {
+    label: 'Undo',
+    fn: () => {
+      const cur = S.entries;
+      if (!cur[key]) cur[key] = [];
+      cur[key].splice(Math.min(index, cur[key].length), 0, removed);
+      S.entries = cur;
+      renderCalendar(); renderSummary(); renderWeeklySummary(); renderJobsList(); renderSidePanel(key);
+    }
+  });
 }
 
 // ── Summary ────────────────────────────────────────────────────────────────
@@ -746,7 +905,9 @@ function renderMileage() {
   const addBtn = document.getElementById('addMileageBtn');
   const entries = getMileageEntries();
 
-  addBtn.disabled = entries.length >= 4;
+  const atMileageLimit = entries.length >= 4;
+  addBtn.disabled = atMileageLimit;
+  addBtn.title = atMileageLimit ? 'Maximum 4 mileage entries per week — delete one to add more.' : '';
 
   if (!entries.length) {
     tbody.innerHTML = `<tr><td colspan="6" class="mileage-empty">No mileage entries for this week.</td></tr>`;
@@ -805,9 +966,18 @@ function updateMileageField(i, field, value) {
 
 function deleteMileageEntry(i) {
   const entries = getMileageEntries();
-  entries.splice(i, 1);
+  const removed = entries.splice(i, 1)[0];
   saveMileageEntries(entries);
   renderMileage();
+  showToast('Mileage entry deleted.', 5000, {
+    label: 'Undo',
+    fn: () => {
+      const cur = getMileageEntries();
+      cur.splice(Math.min(i, cur.length), 0, removed);
+      saveMileageEntries(cur);
+      renderMileage();
+    }
+  });
 }
 
 // ── Expenses ───────────────────────────────────────────────────────────────
@@ -831,7 +1001,9 @@ function renderExpenses() {
   const addBtn  = document.getElementById('addExpenseBtn');
   const entries = getExpenseEntries();
 
-  addBtn.disabled = entries.length >= 3;
+  const atExpenseLimit = entries.length >= 3;
+  addBtn.disabled = atExpenseLimit;
+  addBtn.title = atExpenseLimit ? 'Maximum 3 expense entries per week — delete one to add more.' : '';
 
   if (!entries.length) {
     tbody.innerHTML = `<tr><td colspan="4" class="mileage-empty">No expense entries for this week.</td></tr>`;
@@ -879,9 +1051,18 @@ function updateExpenseField(i, field, value) {
 
 function deleteExpenseEntry(i) {
   const entries = getExpenseEntries();
-  entries.splice(i, 1);
+  const removed = entries.splice(i, 1)[0];
   saveExpenseEntries(entries);
   renderExpenses();
+  showToast('Expense entry deleted.', 5000, {
+    label: 'Undo',
+    fn: () => {
+      const cur = getExpenseEntries();
+      cur.splice(Math.min(i, cur.length), 0, removed);
+      saveExpenseEntries(cur);
+      renderExpenses();
+    }
+  });
 }
 
 // ── Jobs Manager ───────────────────────────────────────────────────────────
@@ -890,9 +1071,10 @@ function renderJobsList() {
   const jobs = S.jobs;
   if (!jobs.length) { list.innerHTML = '<p class="placeholder">No jobs yet.</p>'; return; }
 
-  // Sort by job number (natural sort), jobs without a number go last
-  const sorted = jobs
+  const hasArchived = jobs.some(j => j.archived);
+  const visible = jobs
     .map((j, i) => ({ j, i }))
+    .filter(({ j }) => _showArchivedJobs || !j.archived)
     .sort((a, b) => {
       if (!a.j.number && !b.j.number) return 0;
       if (!a.j.number) return 1;
@@ -900,49 +1082,136 @@ function renderJobsList() {
       return a.j.number.localeCompare(b.j.number, undefined, { numeric: true, sensitivity: 'base' });
     });
 
-  list.innerHTML = sorted.map(({ j, i }) => {
-    const used = jobLifetimeHours(jobKey(j));
-    const budget = j.budget;
-    const hasBudget = budget != null;
-    const remaining = hasBudget ? budget - used : null;
-    const pct = hasBudget ? Math.min(100, (used / budget) * 100) : 0;
-    const overBudget = hasBudget && remaining < 0;
-    const nearBudget = hasBudget && !overBudget && remaining <= budget * 0.1;
+  const grouped = { '181': [], '187': [], other: [] };
+  visible.forEach(item => grouped[jobGroup(item.j)].push(item));
 
-    const barClass = overBudget ? 'bar-over' : nearBudget ? 'bar-near' : 'bar-ok';
+  const groupOrder = [
+    { key: '181', label: '181 – Contract' },
+    { key: '187', label: '187 – Express' },
+    { key: 'other', label: 'Other' },
+  ];
 
-    return `
-      <div class="job-card">
-        <div class="job-card-top">
-          <span class="job-card-name">
-            ${j.number ? `<span class="job-card-number">${esc(j.number)}</span> ` : ''}${esc(j.name)}
-          </span>
-          <button class="btn btn-danger" onclick="removeJob(${i})" title="Remove">✕</button>
-        </div>
-        ${hasBudget ? `
-          <div class="budget-bar-track">
-            <div class="budget-bar-fill ${barClass}" style="width:${pct}%"></div>
-          </div>
-          <div class="budget-stats">
-            <span>Used: <strong>${used.toFixed(2)}h</strong>${j.startingHours ? ` <span class="muted-cell">(incl. ${j.startingHours}h prior)</span>` : ''}</span>
-            <span>Budget: <strong>${budget.toFixed(2)}h</strong></span>
-            <span class="${overBudget ? 'over-budget' : nearBudget ? 'near-budget' : ''}">
-              ${overBudget
-                ? `Remaining: <strong class="over-budget">▲ ${Math.abs(remaining).toFixed(2)}h over</strong>`
-                : `Remaining: <strong>${remaining.toFixed(2)}h</strong>`}
+  let html = '';
+
+  if (hasArchived) {
+    html += `<div class="show-archived-row">
+      <label>
+        <input type="checkbox" id="showArchivedChk" ${_showArchivedJobs ? 'checked' : ''} />
+        Show archived jobs
+      </label>
+    </div>`;
+  }
+
+  groupOrder.forEach(({ key, label }) => {
+    const items = grouped[key];
+    if (!items.length) return;
+    const activeCount = items.filter(({ j }) => !j.archived).length;
+    html += `<div class="job-group-header">${label} <span class="job-group-count">${activeCount}</span></div>`;
+    html += items.map(({ j, i }) => {
+      const used = jobLifetimeHours(jobKey(j));
+      const budget = j.budget;
+      const hasBudget = budget != null;
+      const remaining = hasBudget ? budget - used : null;
+      const pct = hasBudget ? Math.min(100, (used / budget) * 100) : 0;
+      const overBudget = hasBudget && remaining < 0;
+      const nearBudget = hasBudget && !overBudget && remaining <= budget * 0.1;
+      const barClass = overBudget ? 'bar-over' : nearBudget ? 'bar-near' : 'bar-ok';
+
+      const metaFields = [
+        ['Customer', j.customer], ['Salesman', j.salesman], ['Designer', j.designer],
+        ['Superintendent', j.superintendent], ['Foreman', j.foreman],
+      ].filter(([, v]) => v);
+
+      return `
+        <div class="job-card${j.archived ? ' archived' : ''}" data-idx="${i}">
+          <div class="job-card-top">
+            <span class="job-card-name">
+              ${j.number ? `<span class="job-card-number">${esc(j.number)}</span> ` : ''}${esc(j.name)}
+              ${j.archived ? '<span class="job-archived-badge">Archived</span>' : ''}
+              ${j.lat != null ? `<span class="job-mapped-pin" title="${esc(j.address || 'Mapped')}">📍</span>` : ''}
             </span>
+            <div style="display:flex;gap:4px;flex-shrink:0">
+              ${!j.archived ? `<button class="btn btn-ghost btn-sm" data-action="duplicate-job" data-idx="${i}" title="Duplicate as new job">Duplicate</button>` : ''}
+              ${!j.archived ? `<button class="btn btn-ghost btn-sm" data-action="edit-job" data-idx="${i}" title="Edit job">Edit</button>` : ''}
+              ${j.archived
+                ? `<button class="btn btn-ghost btn-sm" data-action="unarchive-job" data-idx="${i}">Restore</button>`
+                : `<button class="btn btn-ghost btn-sm" data-action="archive-job" data-idx="${i}" title="Archive">Archive</button>`}
+              <button class="btn btn-danger" data-action="rm-job" data-idx="${i}" title="Remove">✕</button>
+            </div>
           </div>
-        ` : `
-          <div class="budget-stats"><span class="muted-cell">No budget set — <button class="btn-inline" onclick="setBudget(${i})">Set budget</button></span></div>
-        `}
-        <div class="budget-edit-row">
-          <input type="number" id="budget-input-${i}" class="budget-input" min="0" step="0.5"
-            placeholder="Set total hours budget…" value="${hasBudget ? budget : ''}" />
-          <button class="btn btn-ghost btn-sm" onclick="saveBudget(${i})">Save</button>
+          ${metaFields.length ? `<div class="job-meta">${metaFields.map(([lbl, val]) => `<span class="job-meta-item"><span class="job-meta-label">${lbl}:</span> ${esc(val)}</span>`).join('')}</div>` : ''}
+          ${hasBudget ? `
+            <div class="budget-bar-track">
+              <div class="budget-bar-fill ${barClass}" style="width:${pct}%"></div>
+            </div>
+            <div class="budget-stats">
+              <span>Used: <strong>${used.toFixed(2)}h</strong>${j.startingHours ? ` <span class="muted-cell">(incl. ${j.startingHours}h prior)</span>` : ''}</span>
+              <span>Budget: <strong>${budget.toFixed(2)}h</strong></span>
+              <span class="${overBudget ? 'over-budget' : nearBudget ? 'near-budget' : ''}">
+                ${overBudget
+                  ? `Remaining: <strong class="over-budget">▲ ${Math.abs(remaining).toFixed(2)}h over</strong>`
+                  : `Remaining: <strong>${remaining.toFixed(2)}h</strong>`}
+              </span>
+            </div>
+          ` : `
+            <div class="budget-stats"><span class="muted-cell">No budget set — <button class="btn-inline" data-action="set-budget" data-idx="${i}">Set budget</button></span></div>
+          `}
+          <div class="budget-edit-row">
+            <input type="number" id="budget-input-${i}" class="budget-input" min="0" step="0.5"
+              placeholder="Set total hours budget…" value="${hasBudget ? budget : ''}" />
+            <button class="btn btn-ghost btn-sm" data-action="save-budget" data-idx="${i}">Save</button>
+          </div>
+          <div class="job-notes-row">
+            <button class="btn btn-ghost btn-sm job-notes-toggle" data-action="toggle-job-notes" data-idx="${i}">
+              Notes${j.notes ? ' <span class="job-notes-dot">●</span>' : ''}
+            </button>
+            <div class="job-notes-area" id="job-notes-${i}" style="display:none;">
+              <textarea class="job-notes-input" data-idx="${i}" placeholder="Job notes, scope, contacts, punch list…">${esc(j.notes || '')}</textarea>
+            </div>
+          </div>
         </div>
-      </div>
-    `;
-  }).join('');
+      `;
+    }).join('');
+  });
+
+  list.innerHTML = html;
+
+  const chk = document.getElementById('showArchivedChk');
+  if (chk) chk.addEventListener('change', () => { _showArchivedJobs = chk.checked; renderJobsList(); });
+}
+
+function archiveJob(i) {
+  const jobs = S.jobs;
+  if (!jobs[i]) return;
+  jobs[i].archived = true;
+  S.jobs = jobs;
+  renderJobsList();
+  showToast(`"${jobs[i].name}" archived.`, 5000, {
+    label: 'Undo',
+    fn: () => { const j2 = S.jobs; j2[i].archived = false; S.jobs = j2; renderJobsList(); },
+  });
+}
+
+function unarchiveJob(i) {
+  const jobs = S.jobs;
+  if (!jobs[i]) return;
+  jobs[i].archived = false;
+  S.jobs = jobs;
+  renderJobsList();
+  showToast(`"${jobs[i].name}" restored.`, 3000);
+}
+
+function duplicateJob(i) {
+  const jobs = S.jobs;
+  const src = jobs[i];
+  if (!src) return;
+  // Pre-fill the add-job form fields
+  const numIn  = document.getElementById('newJobNumber');
+  const nameIn = document.getElementById('newJobInput');
+  if (numIn)  numIn.value  = src.number || '';
+  if (nameIn) nameIn.value = src.name   || '';
+  if (nameIn) nameIn.focus();
+  showToast('Form pre-filled — edit and click Add Job to save the duplicate.', 5000);
 }
 
 function setBudget(i) {
@@ -958,6 +1227,96 @@ function saveBudget(i) {
   S.jobs = jobs;
   renderJobsList();
   renderSummary();
+}
+
+function openJobEdit(idx) {
+  const card = document.querySelector(`.job-card[data-idx="${idx}"]`);
+  if (!card) return;
+  const j = S.jobs[idx];
+  const inp = (field, val, ph, type = 'text') =>
+    `<input id="je-${field}-${idx}" type="${type}" value="${esc(String(val ?? ''))}" placeholder="${ph}"
+      style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:.84rem;width:100%;box-sizing:border-box" />`;
+  const field = (label, fieldId, val, ph, type) =>
+    `<div class="job-edit-field"><label class="job-edit-label">${label}</label>${inp(fieldId, val, ph, type)}</div>`;
+
+  card.classList.add('job-card-editing');
+  card.innerHTML = `
+    <div class="job-edit-grid">
+      ${field('Job #',          'number',         j.number,         'Job number…')}
+      ${field('Job Name',       'name',           j.name,           'Job name…')}
+      ${field('Customer',       'customer',       j.customer,       'Customer…')}
+      ${field('Salesman',       'salesman',       j.salesman,       'Salesman…')}
+      ${field('Designer',       'designer',       j.designer,       'Designer…')}
+      ${field('Superintendent', 'superintendent', j.superintendent, 'Superintendent…')}
+      ${field('Foreman',        'foreman',        j.foreman,        'Foreman…')}
+      ${field('Starting Hours', 'startingHours',  j.startingHours || '', 'Prior hours used…', 'number')}
+      ${field('Budget (hours)', 'budget',         j.budget != null ? j.budget : '', 'Total budget…', 'number')}
+      <div class="job-edit-field col-span-2">
+        <label class="job-edit-label">Address</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input id="je-address-${idx}" type="text" value="${esc(j.address || '')}" placeholder="Street address, city, state…"
+            style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:.84rem;box-sizing:border-box" />
+          <button class="btn btn-ghost btn-sm je-locate-btn${j.lat ? ' located' : ''}" data-action="geocode-job" data-idx="${idx}" style="white-space:nowrap;flex-shrink:0">${j.lat ? '✓ Located' : 'Locate'}</button>
+          <input type="hidden" id="je-lat-${idx}" value="${j.lat ?? ''}" />
+          <input type="hidden" id="je-lng-${idx}" value="${j.lng ?? ''}" />
+        </div>
+      </div>
+    </div>
+    <div class="job-edit-actions">
+      <button class="btn btn-ghost btn-sm" data-action="cancel-job-edit">Cancel</button>
+      <button class="btn btn-primary btn-sm" data-action="save-job-edit" data-idx="${idx}">Save</button>
+    </div>`;
+  const grid = card.querySelector('.job-edit-grid');
+  if (grid) {
+    grid.style.cssText = 'opacity:0;transform:translateY(4px)';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      grid.style.transition = 'opacity .15s ease, transform .15s ease';
+      grid.style.opacity = '1';
+      grid.style.transform = 'none';
+    }));
+  }
+  card.querySelector(`#je-address-${idx}`)?.addEventListener('input', () => {
+    document.getElementById(`je-lat-${idx}`).value = '';
+    document.getElementById(`je-lng-${idx}`).value = '';
+    const b = card.querySelector('.je-locate-btn');
+    if (b) { b.textContent = 'Locate'; b.classList.remove('located'); }
+  });
+  card.querySelector(`#je-name-${idx}`).focus();
+}
+
+async function saveJobEdit(idx) {
+  const get = f => document.getElementById(`je-${f}-${idx}`)?.value.trim() ?? '';
+  const name = get('name');
+  if (!name) { showToast('Job name is required.', 3000); return; }
+  const budgetVal = parseFloat(get('budget'));
+  const startVal  = parseFloat(get('startingHours'));
+  const address   = get('address') || undefined;
+  let lat = parseFloat(document.getElementById(`je-lat-${idx}`)?.value || '');
+  let lng = parseFloat(document.getElementById(`je-lng-${idx}`)?.value || '');
+  if (address && (isNaN(lat) || isNaN(lng))) {
+    const coords = await geocodeAddress(address);
+    if (coords) { lat = coords.lat; lng = coords.lng; }
+  }
+  const jobs = S.jobs;
+  jobs[idx] = {
+    ...jobs[idx],
+    number:         get('number'),
+    name,
+    customer:       get('customer')       || undefined,
+    salesman:       get('salesman')       || undefined,
+    designer:       get('designer')       || undefined,
+    superintendent: get('superintendent') || undefined,
+    foreman:        get('foreman')        || undefined,
+    startingHours:  isNaN(startVal)  || startVal  <= 0 ? 0    : startVal,
+    budget:         isNaN(budgetVal) || budgetVal <= 0 ? null : budgetVal,
+    address,
+    lat: isNaN(lat) ? undefined : lat,
+    lng: isNaN(lng) ? undefined : lng,
+  };
+  S.jobs = jobs;
+  renderJobsList();
+  renderSummary();
+  showToast('Job updated.', 3000);
 }
 
 function addJob() {
@@ -992,10 +1351,164 @@ function addJob() {
 
 function removeJob(i) {
   const jobs = S.jobs;
-  jobs.splice(i, 1);
+  const removed = jobs.splice(i, 1)[0];
   S.jobs = jobs;
   renderJobsList();
   renderSummary();
+  showToast('Job removed.', 5000, {
+    label: 'Undo',
+    fn: () => {
+      const cur = S.jobs;
+      cur.splice(Math.min(i, cur.length), 0, removed);
+      S.jobs = cur;
+      renderJobsList(); renderSummary();
+    }
+  });
+}
+
+// ── Job Excel / CSV Import ─────────────────────────────────────────────────
+function handleJobImportFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = '';
+  if (file.size > 20 * 1024 * 1024) { showToast('File is too large (max 20 MB).', 4000); return; }
+  const reader = new FileReader();
+  reader.onload = function (ev) {
+    try {
+      const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+        .filter(r => r.some(c => String(c).trim() !== ''));
+      if (rows.length < 2) { showToast('No job data found in the file.', 4000); return; }
+      const headers = rows[0].map(c => String(c));
+      showJobImportPreview(file.name, headers, detectJobColumns(headers), rows.slice(1));
+    } catch (_) {
+      showToast('Could not read file — make sure it is a valid Excel or CSV file.', 5000);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function detectJobColumns(headers) {
+  const h = headers.map(s => String(s || '').toLowerCase().trim());
+  const find = (...terms) => { const i = h.findIndex(hdr => terms.some(t => hdr.includes(t))); return i >= 0 ? i : -1; };
+  return {
+    number:         find('job #', 'job#', 'job no', 'job number'),
+    name:           find('job name', 'name', 'description'),
+    customer:       find('customer', 'client', 'owner'),
+    salesman:       find('salesman', 'sales'),
+    designer:       find('designer'),
+    superintendent: find('superintendent', 'supt', 'super'),
+    foreman:        find('foreman'),
+  };
+}
+
+function showJobImportPreview(fileName, headers, cols, rows) {
+  if (document.getElementById('jobImportModal')) return;
+
+  const FIELDS = [
+    { key: 'number',         label: 'Job #' },
+    { key: 'name',           label: 'Job Name *' },
+    { key: 'customer',       label: 'Customer' },
+    { key: 'salesman',       label: 'Salesman' },
+    { key: 'designer',       label: 'Designer' },
+    { key: 'superintendent', label: 'Superintendent' },
+    { key: 'foreman',        label: 'Foreman' },
+  ];
+
+  const selStyle = 'font-size:.8rem;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);width:100%';
+  const optNone = '<option value="-1">(skip)</option>';
+  const mappingRows = FIELDS.map(f => {
+    const opts = optNone + headers.map((h, i) =>
+      `<option value="${i}"${i === cols[f.key] ? ' selected' : ''}>${esc(h)}</option>`).join('');
+    const sel = `<select class="job-col-map" data-field="${f.key}" style="${selStyle}"${cols[f.key] < 0 ? '' : ''}>${opts}</select>`;
+    if (cols[f.key] >= 0) {
+      // re-select the detected option (default option won't have selected attr if idx matches)
+    }
+    return `<tr><td style="padding:4px 8px 4px 0;font-size:.82rem;white-space:nowrap">${f.label}</td><td style="padding:4px 0 4px 8px;width:100%">${sel}</td></tr>`;
+  }).join('');
+
+  const previewRows = rows.slice(0, 5).map(r =>
+    `<tr>${headers.map((_, i) => `<td style="padding:2px 8px;font-size:.75rem;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-bottom:1px solid var(--border)">${esc(String(r[i] ?? ''))}</td>`).join('')}</tr>`
+  ).join('');
+
+  const m = document.createElement('div');
+  m.id = 'jobImportModal';
+  m.style.cssText = 'position:fixed;inset:0;z-index:10001;display:flex;align-items:center;justify-content:center';
+  m.innerHTML = `
+    <div class="import-backdrop" id="jobImportBackdrop"></div>
+    <div class="import-dialog" style="width:min(640px,96vw);max-height:88vh;display:flex;flex-direction:column">
+      <div class="import-dialog-title">Import Jobs from Excel</div>
+      <div style="overflow-y:auto;flex:1">
+        <p style="font-size:.8rem;color:var(--muted);margin-bottom:14px">${esc(fileName)} &mdash; <strong>${rows.length}</strong> row${rows.length !== 1 ? 's' : ''} found</p>
+        <p style="font-size:.8rem;font-weight:600;margin-bottom:6px">Map columns</p>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:16px"><tbody>${mappingRows}</tbody></table>
+        <p style="font-size:.8rem;font-weight:600;margin-bottom:6px">Preview <span style="font-weight:400;color:var(--muted)">(first ${Math.min(5, rows.length)} rows)</span></p>
+        <div style="overflow-x:auto;margin-bottom:4px">
+          <table style="border-collapse:collapse">
+            <thead><tr>${headers.map(h => `<th style="padding:2px 8px;font-size:.74rem;text-align:left;color:var(--muted);white-space:nowrap;border-bottom:1px solid var(--border)">${esc(h)}</th>`).join('')}</tr></thead>
+            <tbody>${previewRows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="import-dialog-actions" style="margin-top:16px">
+        <button class="btn btn-ghost" id="jobImportCancel">Cancel</button>
+        <button class="btn btn-primary" id="jobImportConfirm">Import ${rows.length} job${rows.length !== 1 ? 's' : ''}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+
+  // Re-apply detected selections (the DOM is now live)
+  FIELDS.forEach(f => {
+    const sel = m.querySelector(`.job-col-map[data-field="${f.key}"]`);
+    if (sel && cols[f.key] >= 0) sel.value = String(cols[f.key]);
+  });
+
+  document.getElementById('jobImportBackdrop').onclick = () => m.remove();
+  document.getElementById('jobImportCancel').onclick   = () => m.remove();
+  document.getElementById('jobImportConfirm').onclick  = () => {
+    const map = {};
+    m.querySelectorAll('.job-col-map').forEach(sel => { map[sel.dataset.field] = parseInt(sel.value, 10); });
+    if (map.name < 0) { showToast('Please map the Job Name column.', 4000); return; }
+    confirmJobImport(rows, map);
+    m.remove();
+  };
+}
+
+function confirmJobImport(rows, map) {
+  const jobs = S.jobs;
+  const existingKeys = new Set(jobs.map(j => jobKey(j)));
+  let added = 0, skipped = 0;
+
+  for (const row of rows) {
+    const get = idx => idx >= 0 ? String(row[idx] ?? '').trim() : '';
+    const name = get(map.name);
+    if (!name) continue;
+    const job = {
+      number:         get(map.number),
+      name,
+      startingHours:  0,
+      budget:         null,
+      customer:       get(map.customer)       || undefined,
+      salesman:       get(map.salesman)       || undefined,
+      designer:       get(map.designer)       || undefined,
+      superintendent: get(map.superintendent) || undefined,
+      foreman:        get(map.foreman)        || undefined,
+    };
+    const key = jobKey(job);
+    if (existingKeys.has(key)) { skipped++; continue; }
+    jobs.push(job);
+    existingKeys.add(key);
+    added++;
+  }
+
+  S.jobs = jobs;
+  renderJobsList();
+  renderSummary();
+
+  const parts = [`Imported ${added} job${added !== 1 ? 's' : ''}`];
+  if (skipped) parts.push(`${skipped} already existed`);
+  showToast(parts.join(' · '), 5000);
 }
 
 // ── Rates & Calcs ──────────────────────────────────────────────────────────
@@ -1011,7 +1524,7 @@ function renderRates() {
         <div class="rate-card-main">
           <span class="rate-label">${esc(r.label)}</span>
           <span class="rate-value">${r.unit === '$/hr' || r.unit === '$/day' ? '$' : ''}${parseFloat(r.value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="rate-unit">${esc(r.unit)}</span></span>
-          <button class="btn btn-danger" onclick="removeRate(${i})">✕</button>
+          <button class="btn btn-danger" data-action="rm-rate" data-idx="${i}">✕</button>
         </div>
         <div class="rate-edit-row">
           <input type="text"   class="rate-edit-label" data-i="${i}" value="${esc(r.label)}" placeholder="Label" />
@@ -1021,7 +1534,7 @@ function renderRates() {
               `<option${u === r.unit ? ' selected' : ''}>${u}</option>`
             ).join('')}
           </select>
-          <button class="btn btn-ghost btn-sm" onclick="saveRate(${i})">Save</button>
+          <button class="btn btn-ghost btn-sm" data-action="save-rate" data-idx="${i}">Save</button>
         </div>
       </div>
     `).join('');
@@ -1292,10 +1805,12 @@ function exportTimesheetJson() {
 }
 
 function download(filename, content, mime) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([content], { type: mime }));
+  a.href = url;
   a.download = filename;
   a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // ── Theme Transition & Preview ─────────────────────────────────────────────
@@ -1407,23 +1922,45 @@ function initCustomSelect(sel) {
       if (w !== wrap) { w.querySelector('.cs-list')?.classList.remove('cs-open'); w.querySelector('.cs-display')?.classList.remove('cs-active'); }
     });
     list.innerHTML = '';
-    Array.from(sel.options).forEach((opt, i) => {
-      const item = document.createElement('div');
-      item.className = 'cs-item' + (opt.selected ? ' cs-selected' : '');
-      item.textContent = opt.text;
-      item.style.animationDelay = `${i * 40}ms`;
-      item.addEventListener('mousedown', e => {
-        e.preventDefault();
-        sel.value = opt.value;
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-        sync();
-        close();
-      });
-      if (isThemePicker) {
-        item.addEventListener('mouseenter', () => showThemePreview(opt.value, item, list));
-        item.addEventListener('mouseleave', hideThemePreview);
+    let animIdx = 0;
+    Array.from(sel.children).forEach(child => {
+      if (child.tagName === 'OPTGROUP') {
+        const lbl = document.createElement('div');
+        lbl.className = 'cs-group-label';
+        lbl.textContent = child.label;
+        list.appendChild(lbl);
+        Array.from(child.children).forEach(opt => {
+          const item = document.createElement('div');
+          item.className = 'cs-item' + (opt.selected ? ' cs-selected' : '');
+          item.textContent = opt.text;
+          item.style.animationDelay = `${animIdx++ * 40}ms`;
+          item.addEventListener('mousedown', e => {
+            e.preventDefault();
+            sel.value = opt.value;
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            sync();
+            close();
+          });
+          list.appendChild(item);
+        });
+      } else {
+        const item = document.createElement('div');
+        item.className = 'cs-item' + (child.selected ? ' cs-selected' : '');
+        item.textContent = child.text;
+        item.style.animationDelay = `${animIdx++ * 40}ms`;
+        item.addEventListener('mousedown', e => {
+          e.preventDefault();
+          sel.value = child.value;
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+          sync();
+          close();
+        });
+        if (isThemePicker) {
+          item.addEventListener('mouseenter', () => showThemePreview(child.value, item, list));
+          item.addEventListener('mouseleave', hideThemePreview);
+        }
+        list.appendChild(item);
       }
-      list.appendChild(item);
     });
 
     // Open upward if not enough space below
@@ -1495,7 +2032,8 @@ function showCalPopup(cell, key, entries) {
     ${entries.map((e, i) => {
       const isSpecial = !!e.type;
       const label = isSpecial ? (SPECIAL_LABELS[e.type] || e.type) : esc(e.job);
-      return `<div class="cal-popup-entry" data-key="${key}" data-idx="${i}">
+      const colorStyle = isSpecial ? '' : `border-left: 3px solid var(--job-color-${jobColorIndex(e.job)});`;
+      return `<div class="cal-popup-entry" data-key="${key}" data-idx="${i}" style="${colorStyle}">
         <div class="cal-popup-entry-top">
           <span class="cal-popup-job">${label}</span>
           <span class="cal-popup-hours">${e.hours}h</span>
@@ -1523,8 +2061,15 @@ function showCalPopup(cell, key, entries) {
   let top    = rect.bottom + window.scrollY + 6;
   if (left + pw > window.innerWidth - 8) left = rect.right + window.scrollX - pw;
   if (left < 8) left = 8;
-  popup.style.left = left + 'px';
-  popup.style.top  = top + 'px';
+  popup.style.left   = left + 'px';
+  popup.style.top    = top + 'px';
+  popup.style.bottom = '';
+  requestAnimationFrame(() => {
+    const ph = popup.offsetHeight || 120;
+    if (rect.bottom + ph + 6 > window.innerHeight - 8) {
+      popup.style.top = (rect.top + window.scrollY - ph - 6) + 'px';
+    }
+  });
 }
 
 function hideCalPopup() {
@@ -1544,21 +2089,88 @@ function showEntryDetail(key, idx) {
 
   document.getElementById('sidePanelTitle').textContent = 'Entry Detail';
   document.getElementById('sidePanelDate').textContent  = dateStr;
-  document.getElementById('sideContent').innerHTML = `
+  const sc = document.getElementById('sideContent');
+  sc.classList.add('fading');
+  setTimeout(() => {
+    sc.classList.remove('fading');
+  sc.innerHTML = `
     <div class="entry-detail-card">
       <div class="entry-detail-label">${esc(label)}</div>
       ${!isSpecial && e.costCode ? `<div class="entry-detail-cc">${esc(e.costCode)}</div>` : ''}
       <div class="entry-detail-hours">${e.hours}h</div>
       ${e.notes ? `<div class="entry-detail-notes">${esc(e.notes)}</div>` : '<div class="entry-detail-notes muted-cell">No notes.</div>'}
     </div>
-    <div style="display:flex;gap:8px;margin-top:14px;">
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
       <button class="btn btn-ghost btn-sm" id="detailBackBtn">&#8592; Back</button>
+      <button class="btn btn-primary btn-sm" id="detailEditBtn">Edit</button>
       <button class="btn btn-danger btn-sm" id="detailDeleteBtn">Delete</button>
     </div>
   `;
 
-  document.getElementById('detailBackBtn').addEventListener('click',   () => renderSidePanel(key));
+  document.getElementById('detailBackBtn').addEventListener('click', () => renderSidePanel(key));
   document.getElementById('detailDeleteBtn').addEventListener('click', () => deleteEntry(key, idx));
+  document.getElementById('detailEditBtn').addEventListener('click', () => openEditEntry(key, idx));
+  }, 100);
+}
+
+function openEditEntry(key, idx) {
+  const entries = S.entries[key] || [];
+  const e = entries[idx];
+  if (!e) return;
+  const isSpecial = !!e.type;
+
+  renderSidePanel(key);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const catSel = document.getElementById('entryCategory');
+    if (!catSel) return;
+
+    catSel.value = isSpecial ? e.type : 'job';
+    catSel.dispatchEvent(new Event('change'));
+
+    setTimeout(() => {
+      if (!isSpecial) {
+        const jobSel = document.getElementById('entryJob');
+        if (jobSel) { jobSel.value = e.job; jobSel.dispatchEvent(new Event('change')); }
+        const ccSel = document.getElementById('entryCostCode');
+        if (ccSel) { ccSel.value = e.costCode || 'Overhead'; ccSel.dispatchEvent(new Event('change')); }
+      }
+      const hoursEl = document.getElementById('entryHours');
+      if (hoursEl) hoursEl.value = e.hours;
+      const notesEl = document.getElementById('entryNotes');
+      if (notesEl) notesEl.value = e.notes || '';
+
+      document.querySelectorAll('#sideContent .cs-wrap').forEach(wrap => {
+        const sel  = wrap.querySelector('select');
+        const disp = wrap.querySelector('.cs-display');
+        if (sel && disp) disp.textContent = sel.options[sel.selectedIndex]?.text || '';
+      });
+
+      const addBtn = document.getElementById('addEntryBtn');
+      if (!addBtn) return;
+      addBtn.textContent = 'Save Changes';
+      const fresh = addBtn.cloneNode(true);
+      addBtn.parentNode.replaceChild(fresh, addBtn);
+      fresh.addEventListener('click', () => {
+        const category = document.getElementById('entryCategory').value;
+        const hours    = parseFloat(document.getElementById('entryHours').value);
+        const notes    = document.getElementById('entryNotes').value.trim();
+        if (!hours || hours <= 0) { alert('Please enter valid hours.'); return; }
+        const all = S.entries;
+        if (!all[key]) return;
+        if (category === 'job') {
+          const job      = document.getElementById('entryJob')?.value.trim();
+          const costCode = document.getElementById('entryCostCode')?.value || 'Overhead';
+          if (!job) { alert('Please select a job.'); return; }
+          all[key][idx] = { job, costCode, hours, notes };
+        } else {
+          all[key][idx] = { type: category, hours, notes };
+        }
+        S.entries = all;
+        renderCalendar(); renderSummary(); renderWeeklySummary(); renderJobsList(); renderSidePanel(key);
+        showToast('Entry updated.');
+      });
+    }, 120);
+  }));
 }
 
 // ── Backup & Restore ───────────────────────────────────────────────────────
@@ -1572,6 +2184,7 @@ function exportBackup() {
   };
   const date = new Date().toISOString().slice(0, 10);
   download(`dht-backup-${date}.json`, JSON.stringify(backup, null, 2), 'application/json');
+  showToast(`Backup saved: dht-backup-${date}.json`);
 }
 
 function importBackup() {
@@ -1581,6 +2194,7 @@ function importBackup() {
   input.onchange = e => {
     const file = e.target.files[0];
     if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { alert('Backup file is too large (max 10 MB).'); return; }
     const reader = new FileReader();
     reader.onload = ev => {
       try {
@@ -1711,10 +2325,890 @@ function doImport(data, isBackup, mode) {
   renderWeeklySummary();
   renderJobsList();
   renderRates();
+
+  const dayCount = Object.keys(isBackup ? (data.entries || {}) : data).length;
+  const jobCount = isBackup ? (data.jobs || []).length : 0;
+  const rateCount = isBackup ? (data.rates || []).length : 0;
+  const parts = [`${dayCount} day${dayCount !== 1 ? 's' : ''} imported`];
+  if (jobCount) parts.push(`${jobCount} job${jobCount !== 1 ? 's' : ''}`);
+  if (rateCount) parts.push(`${rateCount} rate${rateCount !== 1 ? 's' : ''}`);
+  showToast(parts.join(' · '));
+}
+
+// ── Help Guide ─────────────────────────────────────────────────────────────
+function showHelp() {
+  if (document.getElementById('helpModal')) return;
+
+  function sec(id, icon, title, desc, stepsHtml) {
+    return `<div class="help-section" id="${id}">
+      <div class="help-section-title">${icon} ${title}</div>
+      <div class="help-section-desc">${desc}</div>
+      <div class="help-steps">${stepsHtml}</div>
+    </div><hr class="help-divider">`;
+  }
+  function step(n, html) {
+    return `<div class="help-step"><div class="help-step-num">${n}</div><div class="help-step-text">${html}</div></div>`;
+  }
+  function note(html) { return `<div class="help-note">${html}</div>`; }
+  function sub(items) {
+    return `<div class="help-sub-steps">${items.map((t, i) => `<div class="help-sub-step"><strong>${String.fromCharCode(97 + i)}.</strong> ${t}</div>`).join('')}</div>`;
+  }
+
+  const sections = [
+    sec('hs1', '🚀', '1. Getting started',
+      'Set up your profile before logging your first hours so your name and employee number appear correctly on exported timesheets.',
+      [
+        step(1, 'Open the app at <strong>wfsdestrack.web.app</strong>, or launch the desktop app.'),
+        step(2, '<strong>Open Settings:</strong>' + sub([
+          '<strong>Desktop app (Windows):</strong> click the <strong>⚙ Settings</strong> button in the bottom-right corner of the screen.',
+          '<strong>Mobile / web browser:</strong> tap the <strong>⚙ Settings</strong> button at the right end of the bottom navigation bar (swipe left if you don\'t see it).',
+        ])),
+        step(3, 'Enter your <strong>Designer Name</strong> and <strong>Employee #</strong> in the fields provided, then click <strong>Save</strong>.'),
+        step(4, 'Go to the <strong>Jobs</strong> tab and add at least one job before logging hours (see section 5).'),
+      ].join('')
+    ),
+    sec('hs2', '🕐', '2. Logging hours',
+      'Hours are logged day by day on the calendar. You can add multiple entries per day for different jobs.',
+      [
+        step(1, 'On the <strong>Calendar</strong> view, click the day you want to log hours for. A panel will slide open on the right.'),
+        step(2, 'Select a <strong>Job</strong> from the dropdown. Only jobs you have added will appear here.'),
+        step(3, 'Select a <strong>Cost Code</strong> (e.g. Design, Shop Drawings, Site Visit).'),
+        step(4, 'Enter the number of <strong>Hours</strong> and any optional <strong>Notes</strong>.'),
+        step(5, 'Click <strong>Add Entry</strong>. The day on the calendar will update to show the total hours logged.'),
+        step(6, 'To <strong>edit</strong> an entry, click the day, then click the entry in the list and press <strong>Edit</strong>. To <strong>delete</strong> it, press the trash icon — you will have 5 seconds to undo.'),
+        note('You can log multiple entries on the same day for different jobs or cost codes.'),
+      ].join('')
+    ),
+    sec('hs3', '📊', '3. Viewing summaries &amp; dashboard',
+      'Three views let you review your hours at different levels of detail.',
+      [
+        step(1, 'Click the <strong>Month</strong> tab to see a breakdown of all hours logged this month, grouped by job and cost code, plus a savings estimate.'),
+        step(2, 'Click the <strong>Week</strong> tab to see a table of hours broken down by day for the selected week. Use the arrow buttons at the top of the Week tab to navigate between weeks.'),
+        step(3, 'Click the <strong>Dashboard</strong> tab to see analytics for the current month: total hours, miles, and earnings across 3 charts — hours by job, an 8-week trend line, and hours by day of the week.'),
+        step(4, 'Use the <strong>arrow buttons</strong> at the top of the calendar to navigate between months. All summaries update automatically.'),
+      ].join('')
+    ),
+    sec('hs4', '🚗', '4. Mileage &amp; expenses',
+      'Track job-related mileage and out-of-pocket expenses weekly. These appear on your exported timesheet.',
+      [
+        step(1, 'Click the <strong>Week</strong> tab, then scroll down to the <strong>Mileage</strong> and <strong>Expenses</strong> sections.'),
+        step(2, 'Click <strong>Add Mileage</strong>. Enter the <strong>PO number</strong>, a brief <strong>description</strong>, and the <strong>miles</strong> driven.'),
+        step(3, 'Click <strong>Add Expense</strong>. Enter the <strong>PO number</strong>, a <strong>description</strong>, and the <strong>dollar amount</strong>.'),
+        step(4, 'To remove an entry, click the <strong>✕</strong> button. You will have 5 seconds to undo.'),
+        note('You can add up to 4 mileage entries and 3 expense entries per week.'),
+      ].join('')
+    ),
+    sec('hs5', '💼', '5. Managing jobs',
+      'Jobs must be added before you can log hours against them. The easiest way to load your active jobs is to export them directly from the SharePoint job dashboard.',
+      [
+        step(1, 'Go to the <strong>Jobs</strong> tab.'),
+        step(2, '<strong>To import from SharePoint (recommended):</strong>' + sub([
+          'Open the <strong>Job Dashboard</strong> in SharePoint.',
+          'Filter the list by your <strong>designer name</strong> so only your jobs are shown.',
+          'Hover your cursor anywhere inside the dashboard — three dots (<strong>…</strong>) will appear in the top-right corner of the list. Click them.',
+          'Click <strong>Export data</strong>. A file called <strong>data.xlsx</strong> will download to your computer.',
+          'Back in the Design Hours Tracker, click <strong>Import from Excel</strong>.',
+          'Select the <strong>data.xlsx</strong> file that was just downloaded.',
+          'The app will detect the column headers automatically. Review the mapping and click <strong>Import</strong>.',
+        ])),
+        step(3, '<strong>To add a single job manually:</strong> enter the <strong>Job #</strong> and <strong>Job Name</strong> in the fields at the top, then click <strong>Add Job</strong>. You can optionally enter a starting hours balance and a total hours budget.'),
+        step(4, '<strong>To edit a job:</strong> click <strong>Edit</strong> on any job card. Update any fields and click <strong>Save</strong>.'),
+        step(5, '<strong>To set an hours budget:</strong> open the Edit form for the job, enter the total hours in the <strong>Budget</strong> field, and save. A progress bar will appear on the card showing hours used vs. remaining.'),
+        step(6, '<strong>To duplicate a job</strong> (useful for recurring or similar jobs): click <strong>Duplicate</strong> on any card. The add-job form at the top will pre-fill with that job\'s details — edit what you need and click <strong>Add Job</strong>.'),
+        step(7, '<strong>To archive a completed job:</strong> click <strong>Archive</strong> on the card. Archived jobs are hidden from the list and from the hour-logging dropdown, but their history is preserved. To restore one, check <strong>Show archived</strong> at the bottom of the list and click <strong>Restore</strong>.'),
+        step(8, 'To permanently remove a job, click the <strong>✕</strong> button on the card. You will have 5 seconds to undo.'),
+        note('Re-importing from SharePoint will not create duplicates — any jobs already in the app are skipped automatically.'),
+      ].join('')
+    ),
+    sec('hs6', '📄', '6. Exporting the timesheet',
+      'The timesheet export automatically fills in your Wiginton Designer Timesheet with your hours, mileage, and expenses for any selected week. Two formats are available — Excel and PDF — and both are only available on the desktop (Windows) app.',
+      [
+        step(1, 'Make sure your <strong>Designer Name</strong> and <strong>Employee #</strong> are saved in Settings (⚙ bottom-right corner).'),
+        step(2, 'Use the calendar arrows to navigate to the week you want to export.'),
+        step(3, 'Click the <strong>Week</strong> tab.'),
+        step(4, '<strong>To export as Excel (.xlsx):</strong> click <strong>Export to Timesheet</strong>. The filled-in spreadsheet will open directly in Excel so you can review, adjust, and save it.' +
+          note('This is the standard format — use this when you need to make any manual edits before submitting.')),
+        step(5, '<strong>To export as PDF:</strong> click <strong>Export to PDF</strong> (appears next to the Excel button). The app fills the same timesheet template and saves it as a PDF in the same folder as your timesheet template file.' +
+          note('Use PDF when you need to email or print the timesheet without it being editable.')),
+        note('Both export buttons are only visible in the desktop (Windows) app — not on the website or mobile browser.'),
+      ].join('')
+    ),
+    sec('hs7', '📈', '7. Dashboard &amp; analytics',
+      'The Dashboard tab gives you a visual overview of your productivity for the current month at a glance.',
+      [
+        step(1, 'Click the <strong>Dashboard</strong> tab.'),
+        step(2, 'The top row shows four stat cards: <strong>Hours This Month</strong>, <strong>Active Jobs</strong>, <strong>Miles This Month</strong>, and <strong>Est. Earnings</strong> (based on your hourly rate if one is set in Rates &amp; Calcs).'),
+        step(3, 'The <strong>Hours by Job</strong> bar chart shows how your time is split across each job this month, color-coded to match the job dots on the calendar.'),
+        step(4, 'The <strong>8-Week Trend</strong> line chart shows your weekly hour totals for the past 8 weeks so you can spot patterns.'),
+        step(5, 'The <strong>Hours by Day</strong> bar chart shows which days of the week you tend to work the most.'),
+        note('The Dashboard always reflects the currently selected month. Use the calendar arrows to compare different months.'),
+      ].join('')
+    ),
+    sec('hs8', '☁️', '8. Syncing across devices',
+      'Create a free sync account to keep your hours in sync between the website, desktop app, and your phone.',
+      [
+        step(1, 'Open <strong>Settings</strong> (⚙ bottom-right). Find the <strong>sync status dot</strong> at the bottom of the panel.'),
+        step(2, 'Click <strong>Sign in</strong>. If you don\'t have an account yet, click <strong>Create account</strong> and enter an email and password.'),
+        step(3, 'Once signed in, the dot will turn green and show <strong>Synced</strong>. Your data will sync automatically whenever you\'re online.'),
+        step(4, 'Sign in with the <strong>same email and password</strong> on any other device to access your data there.'),
+        note('Each designer should use their own sync account. Data is private to your account.'),
+      ].join('')
+    ),
+    sec('hs9', '🔔', '9. Daily reminder notification',
+      'Set a daily reminder so the app notifies you to log your hours at the end of each day.',
+      [
+        step(1, 'Click the <strong>⚙ Settings</strong> button (bottom-right corner).'),
+        step(2, 'Under <strong>Daily Reminder</strong>, click the time field and choose your preferred time, then click <strong>Save</strong>.'),
+        step(3, 'Windows will show a notification at that time each day while the app is running.'),
+        step(4, 'To cancel the reminder, click <strong>Clear time</strong> next to the field and then <strong>Save</strong>.'),
+      ].join('')
+    ),
+  ].join('');
+
+  const toc = `<div class="help-toc">
+    <div class="help-toc-label">Contents</div>
+    <ol class="help-toc-links">
+      <li><a href="#hs1">1. Getting started</a></li>
+      <li><a href="#hs2">2. Logging hours</a></li>
+      <li><a href="#hs3">3. Viewing summaries &amp; dashboard</a></li>
+      <li><a href="#hs4">4. Mileage &amp; expenses</a></li>
+      <li><a href="#hs5">5. Managing jobs</a></li>
+      <li><a href="#hs6">6. Exporting the timesheet</a></li>
+      <li><a href="#hs7">7. Dashboard &amp; analytics</a></li>
+      <li><a href="#hs8">8. Syncing across devices</a></li>
+      <li><a href="#hs9">9. Daily reminder notification</a></li>
+    </ol>
+  </div>`;
+
+  const m = document.createElement('div');
+  m.id = 'helpModal';
+  m.className = 'help-modal-overlay';
+  m.innerHTML = `
+    <div class="help-modal-dialog">
+      <div class="help-modal-header">
+        <span class="help-modal-title">How to use Design Hours Tracker</span>
+        <button class="btn btn-ghost btn-xs" id="helpCloseBtn">✕ Close</button>
+      </div>
+      <div class="help-modal-body" id="helpModalBody">
+        ${toc}
+        ${sections}
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+
+  const closeHelp = () => { m.classList.add('modal-closing'); setTimeout(() => m.remove(), 200); };
+  document.getElementById('helpCloseBtn').addEventListener('click', closeHelp);
+  m.addEventListener('click', e => { if (e.target === m) closeHelp(); });
+
+  // TOC links scroll inside the modal body
+  m.querySelectorAll('.help-toc-links a').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const target = document.getElementById(a.getAttribute('href').slice(1));
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+}
+
+// ── Map ─────────────────────────────────────────────────────────────────────
+async function geocodeAddress(address) {
+  if (!address) return null;
+  try {
+    const res = await fetch(
+      'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(address),
+      { headers: { 'Accept-Language': 'en', 'User-Agent': 'DesignHoursTracker/1.0' } }
+    );
+    const data = await res.json();
+    if (!data.length) return null;
+    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  } catch { return null; }
+}
+
+async function geocodeJobAddress(idx) {
+  const addrEl = document.getElementById(`je-address-${idx}`);
+  if (!addrEl) return;
+  const address = addrEl.value.trim();
+  if (!address) { showToast('Enter an address first.', 3000); return; }
+  const btn = document.querySelector(`[data-action="geocode-job"][data-idx="${idx}"]`);
+  if (btn) { btn.textContent = '…'; btn.disabled = true; }
+  const coords = await geocodeAddress(address);
+  if (btn) btn.disabled = false;
+  if (!coords) {
+    if (btn) btn.textContent = 'Locate';
+    showToast('Address not found — try adding city and state.', 4000);
+    return;
+  }
+  document.getElementById(`je-lat-${idx}`).value = coords.lat;
+  document.getElementById(`je-lng-${idx}`).value = coords.lng;
+  if (btn) { btn.textContent = '✓ Located'; btn.classList.add('located'); }
+}
+
+let _jobMap = null;
+let _jobMarkers = null;
+
+function renderMap() {
+  const tabEl = document.getElementById('tab-map');
+  if (!tabEl || tabEl.style.display === 'none') return;
+  const jobs = S.jobs.filter(j => j.lat != null && j.lng != null);
+
+  if (!_jobMap) {
+    _jobMap = L.map('jobMap', { zoomControl: true }).setView([32.7767, -96.7970], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(_jobMap);
+    _jobMarkers = L.layerGroup().addTo(_jobMap);
+  } else {
+    _jobMarkers.clearLayers();
+    _jobMap.invalidateSize();
+  }
+
+  if (!jobs.length) {
+    document.getElementById('tab-map').insertAdjacentHTML('afterbegin',
+      '<p class="map-empty-msg placeholder">Edit a job and add an address to see it pinned here.</p>');
+    return;
+  }
+  document.querySelector('.map-empty-msg')?.remove();
+
+  const bounds = [];
+  jobs.forEach(j => {
+    const label = (j.number ? j.number + ' — ' : '') + j.name;
+    const icon = L.divIcon({
+      className: 'job-map-icon',
+      html: `<div class="map-pin"><svg width="22" height="30" viewBox="0 0 22 30" xmlns="http://www.w3.org/2000/svg"><path d="M11 0C4.925 0 0 4.925 0 11c0 8.25 11 19 11 19S22 19.25 22 11C22 4.925 17.075 0 11 0z" fill="var(--primary,#3b6fd4)"/><circle cx="11" cy="11" r="4.5" fill="white"/></svg><div class="map-pin-label">${esc(label)}</div></div>`,
+      iconSize: [22, 30],
+      iconAnchor: [11, 30],
+      popupAnchor: [0, -32],
+    });
+    L.marker([j.lat, j.lng], { icon })
+      .addTo(_jobMarkers)
+      .bindPopup(`<strong>${esc(label)}</strong>${j.address ? '<br/><span style="font-size:.85em;color:#666">' + esc(j.address) + '</span>' : ''}`);
+    bounds.push([j.lat, j.lng]);
+  });
+
+  if (bounds.length === 1) {
+    _jobMap.setView(bounds[0], 14);
+  } else {
+    _jobMap.fitBounds(L.latLngBounds(bounds), { padding: [40, 40] });
+  }
+  setTimeout(() => _jobMap.invalidateSize(), 120);
+}
+
+// ── Offline Indicator ─────────────────────────────────────────────────────────
+function initOfflineDot() {
+  const dot = document.getElementById('offlineDot');
+  if (!dot) return;
+  function update() {
+    dot.classList.toggle('offline', !navigator.onLine);
+    dot.title = navigator.onLine ? 'Online' : 'Offline — changes will sync when reconnected';
+  }
+  window.addEventListener('online',  update);
+  window.addEventListener('offline', update);
+  update();
+}
+
+// ── Web / Mobile daily reminder ────────────────────────────────────────────────
+function initWebReminder() {
+  const savedTime = localStorage.getItem('dht_web_reminder');
+  // Schedule based on saved time
+  if (savedTime) scheduleWebReminder(savedTime);
+}
+
+function scheduleWebReminder(timeStr) {
+  if (!timeStr) return;
+  clearTimeout(window._webReminderTimer);
+  function fireNext() {
+    const now = new Date();
+    const [h, m] = timeStr.split(':').map(Number);
+    const next = new Date(now);
+    next.setHours(h, m, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    window._webReminderTimer = setTimeout(() => {
+      if (Notification.permission === 'granted') {
+        new Notification('Design Hours Tracker', { body: "Don't forget to log your hours for today!" });
+      }
+      fireNext();
+    }, next - now);
+  }
+  fireNext();
+}
+
+// ── PDF Export ─────────────────────────────────────────────────────────────────
+function exportTimesheetPdf() {
+  if (!window.electronAPI) return;
+  if (!currentWeekStart) return;
+
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(currentWeekStart);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+  const weekKeys   = weekDays.map(d => toKey(d));
+  const weekEnding = weekDays[6];
+
+  const allEntries = S.entries;
+  const { byRow, special } = computeWeekRtOt(weekKeys, allEntries);
+
+  const jobs    = S.jobs;
+  const jobRows = Object.values(byRow).map(({ jobLabel, costCode, rt, ot }) => {
+    const def = jobs.find(j => jobKey(j) === jobLabel);
+    return { number: def ? def.number : '', name: def ? def.name : jobLabel, costCode, rt, ot };
+  }).sort((a, b) => {
+    if (!a.number && !b.number) return 0;
+    if (!a.number) return 1;
+    if (!b.number) return -1;
+    return a.number.localeCompare(b.number, undefined, { numeric: true });
+  });
+
+  const pad2 = n => String(n).padStart(2, '0');
+  const weekEndingStr = `${pad2(weekEnding.getMonth()+1)}/${pad2(weekEnding.getDate())}/${weekEnding.getFullYear()}`;
+
+  const mileage      = getMileageEntries().filter(e => parseFloat(e.miles) > 0);
+  const expenses     = getExpenseEntries().filter(e => parseFloat(e.amount) > 0 || e.description);
+  const designerName = localStorage.getItem('dht_designer_name') || '';
+  const employeeNum  = localStorage.getItem('dht_employee_num')  || '';
+  const payload      = { weekEnding: weekEndingStr, jobs: jobRows, special, mileage, expenses, designerName, employeeNum };
+
+  const btn  = document.getElementById('exportPdfBtn');
+  const hint = document.getElementById('timesheetHint');
+  btn.disabled = true;
+  btn.textContent = 'Generating PDF…';
+
+  window.electronAPI.fillTimesheetPdf(payload)
+    .then(() => {
+      btn.disabled = false;
+      btn.textContent = 'Export to PDF';
+      if (hint) hint.textContent = 'Done! PDF opened.';
+      setTimeout(() => { if (hint) hint.textContent = 'Fills & opens your timesheet automatically'; }, 4000);
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Export to PDF';
+      if (hint) hint.textContent = 'Error — see alert for details.';
+      setTimeout(() => { if (hint) hint.textContent = 'Fills & opens your timesheet automatically'; }, 4000);
+      alert('PDF export failed:\n\n' + err.message);
+    });
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+function renderDashboard() {
+  const el = document.getElementById('tab-dashboard');
+  if (!el || el.style.display === 'none') return;
+
+  const allEntries = S.entries;
+  const jobs = S.jobs.filter(j => !j.archived);
+  const rates = S.rates;
+  const hourlyRate = rates.find(r => r.unit === '$/hr');
+  const rateVal = hourlyRate ? parseFloat(hourlyRate.value) || 0 : 0;
+
+  // ── This-month totals ──
+  const monthKey = `${currentYear}-${String(currentMonth+1).padStart(2,'0')}`;
+  let monthHours = 0;
+  const hoursByJob = {};
+  const hoursByDow = [0,0,0,0,0,0,0]; // Mon-Sun → index 0-6
+
+  Object.entries(allEntries).forEach(([dateKey, dayEntries]) => {
+    if (!dateKey.startsWith(monthKey)) return;
+    const dow = new Date(dateKey + 'T00:00:00').getDay(); // 0=Sun
+    const dowIdx = dow === 0 ? 6 : dow - 1; // convert to Mon=0..Sun=6
+    (dayEntries || []).forEach(e => {
+      const h = parseFloat(e.hours) || 0;
+      monthHours += h;
+      const jk = e.job || 'Unknown';
+      hoursByJob[jk] = (hoursByJob[jk] || 0) + h;
+      hoursByDow[dowIdx] += h;
+    });
+  });
+
+  // ── 8-week trend ──
+  const weekTotals = [];
+  const weekLabels = [];
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const dow0 = today.getDay();
+  const thisMon = new Date(today);
+  thisMon.setDate(today.getDate() - (dow0 === 0 ? 6 : dow0 - 1));
+
+  for (let w = 7; w >= 0; w--) {
+    const mon = new Date(thisMon);
+    mon.setDate(thisMon.getDate() - w * 7);
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    let wh = 0;
+    for (let d = new Date(mon); d <= sun; d.setDate(d.getDate() + 1)) {
+      const k = toKey(d);
+      (allEntries[k] || []).forEach(e => { wh += parseFloat(e.hours) || 0; });
+    }
+    weekTotals.push(wh);
+    weekLabels.push(`${mon.getMonth()+1}/${mon.getDate()}`);
+  }
+
+  // ── Mileage this month ──
+  let monthMiles = 0;
+  Object.entries(S.mileage).forEach(([wk]) => {
+    const entries = S.mileage[wk] || [];
+    // wk format: YYYY-MM-DD (Monday of week)
+    if (wk.startsWith(monthKey.substring(0,7))) {
+      entries.forEach(e => { monthMiles += parseFloat(e.miles) || 0; });
+    }
+  });
+
+  const earnings = monthHours * rateVal;
+  const activeJobCount = jobs.length;
+
+  el.innerHTML = `
+    <div class="dash-grid">
+      <div class="dash-stat">
+        <div class="dash-stat-label">Hours this month</div>
+        <div class="dash-stat-value">${monthHours.toFixed(1)}</div>
+        <div class="dash-stat-sub">${new Date(currentYear, currentMonth).toLocaleString('default',{month:'long'})} ${currentYear}</div>
+      </div>
+      <div class="dash-stat">
+        <div class="dash-stat-label">Est. earnings</div>
+        <div class="dash-stat-value">${rateVal > 0 ? '$' + earnings.toFixed(0) : '—'}</div>
+        <div class="dash-stat-sub">${rateVal > 0 ? `@ $${rateVal}/hr` : 'Set a $/hr rate to calculate'}</div>
+      </div>
+      <div class="dash-stat">
+        <div class="dash-stat-label">Active jobs</div>
+        <div class="dash-stat-value">${activeJobCount}</div>
+        <div class="dash-stat-sub">${S.jobs.filter(j=>j.archived).length} archived</div>
+      </div>
+      <div class="dash-stat">
+        <div class="dash-stat-label">Miles this month</div>
+        <div class="dash-stat-value">${monthMiles.toFixed(0)}</div>
+        <div class="dash-stat-sub">mi logged</div>
+      </div>
+    </div>
+    <div class="dash-charts">
+      <div class="dash-chart-card">
+        <div class="dash-chart-title">Hours by job — ${new Date(currentYear,currentMonth).toLocaleString('default',{month:'short'})}</div>
+        <canvas id="dashJobChart" height="220"></canvas>
+      </div>
+      <div class="dash-chart-card">
+        <div class="dash-chart-title">8-week trend</div>
+        <canvas id="dashTrendChart" height="220"></canvas>
+      </div>
+    </div>
+    <div class="dash-chart-card dash-chart-full">
+      <div class="dash-chart-title">Hours by day of week — all time</div>
+      <canvas id="dashDowChart" height="160"></canvas>
+    </div>
+  `;
+
+  // Draw after browser lays out
+  requestAnimationFrame(() => {
+    _drawJobChart(document.getElementById('dashJobChart'), hoursByJob, jobs);
+    _drawTrendChart(document.getElementById('dashTrendChart'), weekTotals, weekLabels);
+    _drawDowChart(document.getElementById('dashDowChart'), hoursByDow);
+  });
+}
+
+function _chartColors() {
+  const s = getComputedStyle(document.documentElement);
+  return {
+    text:    s.getPropertyValue('--text').trim()    || '#1e2235',
+    muted:   s.getPropertyValue('--muted').trim()   || '#6b7594',
+    border:  s.getPropertyValue('--border').trim()  || '#dde1ec',
+    primary: s.getPropertyValue('--primary').trim() || '#3b6fd4',
+    jobColors: [0,1,2,3,4,5,6,7].map(n => s.getPropertyValue(`--job-color-${n}`).trim()),
+  };
+}
+
+function _drawJobChart(canvas, hoursByJob, jobs) {
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.parentElement.clientWidth - 32;
+  const H = 220;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const c = _chartColors();
+  const entries = Object.entries(hoursByJob).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]).slice(0, 10);
+
+  if (!entries.length) {
+    ctx.fillStyle = c.muted; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('No hours logged this month', W/2, H/2); return;
+  }
+
+  const maxVal = Math.max(...entries.map(([,v]) => v));
+  const padL = 130, padR = 50, padT = 8, padB = 8;
+  const barH = Math.min(22, (H - padT - padB) / entries.length - 4);
+  const totalH = entries.length * (barH + 4) - 4;
+  const startY = padT + (H - padT - padB - totalH) / 2;
+
+  entries.forEach(([jk, hrs], idx) => {
+    const job = jobs.find(j => jobKey(j) === jk);
+    const label = job ? (job.number ? `${job.number} ${job.name}` : job.name) : jk;
+    const y = startY + idx * (barH + 4);
+    const barW = ((hrs / maxVal) * (W - padL - padR));
+
+    // Color matching job index
+    const ci = jobs.indexOf(job);
+    ctx.fillStyle = c.jobColors[ci % c.jobColors.length] || c.primary;
+    ctx.beginPath();
+    ctx.roundRect(padL, y, Math.max(4, barW), barH, 4);
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = c.text; ctx.font = `${Math.min(12, barH-2)}px sans-serif`;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    const labelTxt = label.length > 18 ? label.slice(0,17)+'…' : label;
+    ctx.fillText(labelTxt, padL - 6, y + barH / 2);
+
+    // Value
+    ctx.textAlign = 'left'; ctx.fillStyle = c.muted;
+    ctx.fillText(hrs.toFixed(1) + 'h', padL + barW + 6, y + barH / 2);
+  });
+}
+
+function _drawTrendChart(canvas, values, labels) {
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.parentElement.clientWidth - 32;
+  const H = 220;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const c = _chartColors();
+  const padL = 36, padR = 16, padT = 16, padB = 32;
+  const maxVal = Math.max(...values, 1);
+  const n = values.length;
+  const xStep = (W - padL - padR) / (n - 1);
+
+  // Grid lines
+  [0, 0.25, 0.5, 0.75, 1].forEach(f => {
+    const y = padT + (1 - f) * (H - padT - padB);
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = c.muted; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText((maxVal * f).toFixed(0), padL - 4, y);
+  });
+
+  // Area fill
+  const grad = ctx.createLinearGradient(0, padT, 0, H - padB);
+  grad.addColorStop(0, c.primary + '55');
+  grad.addColorStop(1, c.primary + '00');
+  ctx.beginPath();
+  values.forEach((v, i) => {
+    const x = padL + i * xStep;
+    const y = padT + (1 - v / maxVal) * (H - padT - padB);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(padL + (n-1) * xStep, H - padB);
+  ctx.lineTo(padL, H - padB);
+  ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = c.primary; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
+  values.forEach((v, i) => {
+    const x = padL + i * xStep;
+    const y = padT + (1 - v / maxVal) * (H - padT - padB);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Dots + labels
+  values.forEach((v, i) => {
+    const x = padL + i * xStep;
+    const y = padT + (1 - v / maxVal) * (H - padT - padB);
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI*2);
+    ctx.fillStyle = c.primary; ctx.fill();
+    ctx.fillStyle = c.muted; ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(labels[i], x, H - padB + 4);
+  });
+}
+
+function _drawDowChart(canvas, hoursByDow) {
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.parentElement.clientWidth - 32;
+  const H = 160;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const c = _chartColors();
+  const labels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const padL = 36, padR = 16, padT = 16, padB = 24;
+  const n = 7;
+  const maxVal = Math.max(...hoursByDow, 1);
+  const slotW = (W - padL - padR) / n;
+  const barW  = slotW * 0.55;
+
+  // Grid
+  [0, 0.5, 1].forEach(f => {
+    const y = padT + (1-f) * (H - padT - padB);
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+    ctx.setLineDash([]);
+    if (f > 0) {
+      ctx.fillStyle = c.muted; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText((maxVal*f).toFixed(0), padL-4, y);
+    }
+  });
+
+  hoursByDow.forEach((v, i) => {
+    const x = padL + i * slotW + (slotW - barW) / 2;
+    const barH = (v / maxVal) * (H - padT - padB);
+    const y = padT + (H - padT - padB) - barH;
+    ctx.fillStyle = c.primary + (i < 5 ? 'cc' : '77');
+    ctx.beginPath(); ctx.roundRect(x, y, barW, barH, 4); ctx.fill();
+    ctx.fillStyle = c.text; ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(labels[i], padL + i*slotW + slotW/2, H - padB + 4);
+    if (v > 0) {
+      ctx.fillStyle = c.muted; ctx.textBaseline = 'bottom';
+      ctx.fillText(v.toFixed(1), padL + i*slotW + slotW/2, y - 2);
+    }
+  });
+}
+
+// ── Notes ───────────────────────────────────────────────────────────────────
+function loadNotes() {
+  return JSON.parse(localStorage.getItem('dht_notes') || '[]');
+}
+function saveNotes(notes) {
+  localStorage.setItem('dht_notes', JSON.stringify(notes));
+  if (typeof syncPush === 'function') syncPush();
+}
+function formatNoteDate(dateStr) {
+  if (!dateStr) return '';
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
+window.renderNotes = function renderNotes() {
+  const container = document.getElementById('tab-notes');
+  if (!container) return;
+  const notes = loadNotes();
+  const jobs = S.jobs;
+  const q = (container.querySelector('.notes-search')?.value || '').toLowerCase();
+  const filtered = q
+    ? notes.filter(n => (n.title || '').toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q))
+    : notes;
+  const sorted = [...filtered].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const jobMap = {};
+  jobs.forEach(j => { jobMap[jobKey(j)] = j; });
+
+  container.innerHTML = `
+    <div class="notes-toolbar">
+      <button class="btn btn-primary btn-sm" id="addNoteBtn">+ New Note</button>
+      <input class="notes-search" id="notesSearch" placeholder="Search notes…" type="search" value="${esc(q)}" />
+    </div>
+    ${sorted.length ? sorted.map(n => {
+      const j = n.jobId ? jobMap[n.jobId] : null;
+      const preview = (n.body || '').replace(/\n/g, ' ').slice(0, 140) + ((n.body || '').length > 140 ? '…' : '');
+      return `<div class="note-card">
+        <div class="note-card-header">
+          <span class="note-card-title">${esc(n.title || 'Untitled')}</span>
+          <div class="note-card-actions">
+            <button class="btn btn-ghost btn-sm" data-action="open-note" data-id="${esc(n.id)}">Edit</button>
+            <button class="btn btn-danger btn-sm" data-action="del-note" data-id="${esc(n.id)}">✕</button>
+          </div>
+        </div>
+        <div class="note-card-meta">
+          <span class="note-date">${formatNoteDate(n.date)}</span>
+          ${j ? `<span class="note-job-tag">${esc((j.number ? j.number + ' — ' : '') + j.name)}</span>` : ''}
+        </div>
+        ${preview ? `<div class="note-preview">${esc(preview)}</div>` : ''}
+      </div>`;
+    }).join('') : '<p class="placeholder">No notes yet — hit "+ New Note" to start.</p>'}
+  `;
+  document.getElementById('addNoteBtn')?.addEventListener('click', () => openNoteEditor(null));
+  document.getElementById('notesSearch')?.addEventListener('input', window.renderNotes);
+};
+function openNoteEditor(id) {
+  const notes = loadNotes();
+  const note = id ? notes.find(n => n.id === id) : null;
+  const today = new Date().toISOString().slice(0, 10);
+  const jobs = S.jobs;
+  const m = document.createElement('div');
+  m.id = 'noteEditorModal';
+  m.style.cssText = 'position:fixed;inset:0;z-index:10001;display:flex;align-items:flex-start;justify-content:center;padding-top:5vh;';
+  m.innerHTML = `
+    <div class="import-backdrop" id="noteEditorBd"></div>
+    <div class="note-editor-dialog">
+      <div class="import-dialog-title">${note ? 'Edit Note' : 'New Note'}</div>
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="noteTitle" placeholder="Meeting, topic, site visit…" value="${esc(note?.title || '')}" />
+      </div>
+      <div style="display:flex;gap:10px;">
+        <div class="form-group" style="flex:1">
+          <label>Date</label>
+          <input type="date" id="noteDate" value="${esc(note?.date || today)}" />
+        </div>
+        <div class="form-group" style="flex:2">
+          <label>Job (optional)</label>
+          <select id="noteJobSelect">
+            <option value="">— None —</option>
+            ${jobs.map(j => `<option value="${esc(jobKey(j))}" ${note?.jobId === jobKey(j) ? 'selected' : ''}>${esc((j.number ? j.number + ' — ' : '') + j.name)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="noteBody" class="note-editor-body" rows="12" placeholder="Type your notes here…">${esc(note?.body || '')}</textarea>
+      </div>
+      <div class="import-dialog-actions">
+        <button class="btn btn-ghost" id="noteEditorCancel">Cancel</button>
+        <button class="btn btn-primary" id="noteEditorSave">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(m);
+  const close = () => { m.style.opacity = '0'; setTimeout(() => m.remove(), 150); };
+  m.style.opacity = '0';
+  requestAnimationFrame(() => { m.style.transition = 'opacity .15s ease'; m.style.opacity = '1'; });
+  document.getElementById('noteEditorBd').addEventListener('click', close);
+  document.getElementById('noteEditorCancel').addEventListener('click', close);
+  document.getElementById('noteEditorSave').addEventListener('click', () => {
+    const title = document.getElementById('noteTitle').value.trim();
+    const date  = document.getElementById('noteDate').value;
+    const jobId = document.getElementById('noteJobSelect').value;
+    const body  = document.getElementById('noteBody').value;
+    const cur = loadNotes();
+    if (note) {
+      const i = cur.findIndex(n => n.id === id);
+      if (i >= 0) cur[i] = { ...cur[i], title, date, jobId, body, updatedAt: Date.now() };
+    } else {
+      cur.unshift({ id: 'n' + Date.now(), title, date, jobId, body, updatedAt: Date.now() });
+    }
+    saveNotes(cur);
+    window.renderNotes();
+    close();
+  });
+  setTimeout(() => document.getElementById('noteTitle')?.focus(), 50);
+}
+function deleteNote(id) {
+  const notes = loadNotes();
+  const idx = notes.findIndex(n => n.id === id);
+  if (idx < 0) return;
+  const removed = notes[idx];
+  notes.splice(idx, 1);
+  saveNotes(notes);
+  window.renderNotes();
+  showToast('Note deleted.', 6000, { label: 'Undo', fn: () => {
+    const cur = loadNotes();
+    cur.splice(Math.min(idx, cur.length), 0, removed);
+    saveNotes(cur);
+    window.renderNotes();
+  }});
+}
+function toggleJobNotes(idx) {
+  const area = document.getElementById(`job-notes-${idx}`);
+  if (!area) return;
+  const open = area.style.display === 'none' || area.style.display === '';
+  area.style.display = open ? 'block' : 'none';
+  if (open) area.querySelector('textarea')?.focus();
 }
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '1.9.3', date: '2026-06-25', changes: [
+    'Updated in-app Help guide: covers PDF export, job archiving/duplicate, Dashboard tab, and daily reminders',
+  ] },
+  { version: '1.9.2', date: '2026-06-25', changes: [
+    'Redesigned daily reminder time picker in Settings — now full-width with larger, easier to read input',
+    'Tab row is now horizontally scrollable — all 7 tabs accessible without crowding',
+  ] },
+  { version: '1.9.1', date: '2026-06-25', changes: [
+    'Fixed jobs list not appearing under Manage Jobs on startup (variable initialization order bug)',
+    'Removed stopwatch timer from header per user feedback',
+  ] },
+  { version: '1.9.0', date: '2026-06-25', changes: [
+    'Added job archiving — archive completed jobs to keep the list clean without losing data',
+    'Added Duplicate button on job cards to pre-fill the add-job form as a template',
+    'Added Export to PDF button — fills the Designer Timesheet and opens it as a PDF (Electron only)',
+    'Added offline indicator dot in the header (green = online, red = offline)',
+    'Added daily reminder setting for web/mobile (via browser Notification API)',
+  ] },
+  { version: '1.8.0', date: '2026-06-25', changes: [
+    'Added Dashboard tab with stat cards and charts — hours by job, 8-week trend, hours by day of week',
+  ] },
+  { version: '1.7.2', date: '2026-06-25', changes: [
+    'Fixed version badge always showing v1.5.0 — now reads from app code instead of version.json',
+  ] },
+  { version: '1.7.1', date: '2026-06-25', changes: [
+    'Fixed map tab not rendering — Leaflet now initializes after the tab container is visible',
+  ] },
+  { version: '1.7.0', date: '2026-06-25', changes: [
+    'Added interactive Map tab showing all jobs as pins on an OpenStreetMap map',
+    'Added Address field to job edit form with one-click Nominatim geocoding',
+    'Jobs auto-geocode on save if an address is entered without clicking Locate',
+    'Pin labels show job number and name; clicking a pin shows address popup',
+    'Jobs tab shows 📍 indicator on cards that have a mapped location',
+    'Map fits all pins in view automatically; single-job view zooms to street level',
+  ] },
+  { version: '1.6.0', date: '2026-06-25', changes: [
+    'Added Notes tab — create, search, and manage dated meeting and general notes',
+    'Notes can be linked to a specific job for easy reference',
+    'Added quick per-job notes field on each job card (toggle to expand, auto-saves)',
+    'Notes sync across devices via cloud sync',
+  ] },
+  { version: '1.5.0', date: '2026-06-25', changes: [
+    'Fixed help button not responding after inline onclick removal',
+    'Fixed settings panel floating into the middle of the screen on Electron',
+    'Fixed holiday observed-day calculation when Jan 1 or another holiday falls on Saturday (Dec 31 was not shown)',
+    'Fixed toast message XSS vector — message text is now set safely via textContent',
+    'Fixed entry detail view missing its fade-in transition when opening from a day entry',
+    'Job edit form now animates in when opened',
+    'Help, changelog, and settings panels now animate out smoothly on close',
+    'Custom select dropdown now fades in as a unit (not just per-item)',
+    'All modals (help, changelog, sync) now fade out before removing from DOM',
+    'Input and select fields now transition border-color on focus',
+    'Sheet backdrop (mobile) now fades out on close',
+    'Bottom-nav icon stroke-width now animates on active state change (mobile)',
+    'Version badge now lifts on hover like other buttons',
+    'Download functions now revoke blob URLs to prevent memory leaks',
+    'Added 10 MB size limit on backup imports and 20 MB on Excel imports',
+    'Removed deprecated cdn.firebase.com from Content Security Policy (web)',
+    'Auto-updater errors are now logged instead of silently swallowed',
+    'Guard against duplicate simultaneous update checks',
+    'Cloud theme sync now keeps the custom select display label in sync',
+  ] },
+  { version: '1.4.9', date: '2026-06-25', changes: [
+    'Jobs are now grouped by type in Manage Jobs and the log-hours dropdown — 181 Contract, 187 Express, and Other — making large job lists much easier to navigate',
+    'Each job now shows a distinct color accent on its entry cards, calendar day chips, and hover popup so you can tell jobs apart at a glance (desktop only)',
+  ] },
+  { version: '1.4.8', date: '2026-06-25', changes: [
+    'Added in-app How-To guide — tap the Help button (desktop: above settings panel; web/mobile: in the theme bar) for step-by-step instructions covering logging hours, managing jobs, importing from SharePoint, mileage & expenses, timesheet export, and syncing',
+  ] },
+  { version: '1.4.7', date: '2026-06-25', changes: [
+    'Job cards now have an Edit button — edit job #, name, customer, salesman, designer, superintendent, foreman, starting hours, and budget inline',
+  ] },
+  { version: '1.4.6', date: '2026-06-25', changes: [
+    'Added Import from Excel button on Jobs tab — import job#, name, customer, salesman, designer, superintendent, and foreman from any .xlsx or .csv file',
+    'Job cards now display customer, salesman, designer, superintendent, and foreman when available',
+  ] },
+  { version: '1.4.5', date: '2026-06-24', changes: [
+    'Added Check for Updates button in Settings panel',
+  ] },
+  { version: '1.4.4', date: '2026-06-24', changes: [
+    'Added entry edit mode — click an entry then Edit to modify it in place',
+    'Added undo toast after deleting entries, mileage, expenses, and jobs',
+    'Added sync error toast with Retry button when Firebase sync fails',
+    'Added export/import feedback toasts (file name on export, counts on import)',
+    'Fixed calendar day popup clipping off bottom of screen on mobile',
+    'Mileage and expense add buttons now explain the limit when disabled',
+    'Week summary table first column is now sticky while scrolling horizontally',
+    'Summary table switches to card layout on very narrow screens',
+    'Faster tab transitions, larger calendar cells, bigger bottom-sheet handle',
+  ] },
   { version: '1.4.3', date: '2026-06-24', changes: [
     'Fixed version badge showing stale version number on web app',
     'Fixed changelog missing v1.4.1 and v1.4.2 entries',
@@ -1777,11 +3271,15 @@ function showChangelog() {
       </div>
       <ul class="cl-list">${entry.changes.map(c => `<li>${c}</li>`).join('')}</ul>
     </div>`).join('');
-  document.getElementById('changelogModal').style.display = 'flex';
+  const modal = document.getElementById('changelogModal');
+  modal.classList.remove('cl-closing');
+  modal.style.display = 'flex';
 }
 
 function hideChangelog() {
-  document.getElementById('changelogModal').style.display = 'none';
+  const modal = document.getElementById('changelogModal');
+  modal.classList.add('cl-closing');
+  setTimeout(() => { modal.style.display = 'none'; modal.classList.remove('cl-closing'); }, 200);
 }
 
 // ── Ripple ─────────────────────────────────────────────────────────────────

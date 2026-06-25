@@ -3,8 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://nominatim.openstreetmap.org; img-src 'self' data: https://*.tile.openstreetmap.org; font-src 'self';" />
   <title>Design Hours Tracker</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="leaflet.css" />
+  <script src="xlsx.mini.min.js"></script>
+  <script src="leaflet.js"></script>
 </head>
 <body>
 
@@ -23,6 +27,7 @@
           <span class="month-label" id="monthLabel"></span>
           <button id="nextMonth">&#8250;</button>
           <button id="todayBtn">Today</button>
+          <span class="offline-dot" id="offlineDot" title="Online"></span>
         </div>
       </header>
       <div class="cal-grid" id="calGrid"></div>
@@ -35,6 +40,9 @@
         <button class="tab" data-tab="week">Week Summary</button>
         <button class="tab" data-tab="jobs">Manage Jobs</button>
         <button class="tab" data-tab="rates">Rates &amp; Calcs</button>
+        <button class="tab" data-tab="notes">Notes</button>
+        <button class="tab" data-tab="map">Map</button>
+        <button class="tab" data-tab="dashboard">Dashboard</button>
       </div>
 
       <div id="tab-month">
@@ -106,9 +114,10 @@
           </div>
         </div>
 
-        <div class="export-row" style="margin-top:14px;align-items:center;">
+        <div class="export-row" style="margin-top:14px;align-items:center;flex-wrap:wrap;gap:8px;">
           <button class="btn btn-primary" id="exportTimesheetBtn">Export to Timesheet</button>
-          <span class="timesheet-hint" id="timesheetHint">Fills &amp; opens your Excel timesheet automatically</span>
+          <button class="btn btn-ghost" id="exportPdfBtn" style="display:none;">Export to PDF</button>
+          <span class="timesheet-hint" id="timesheetHint">Fills &amp; opens your timesheet automatically</span>
         </div>
       </div>
 
@@ -136,9 +145,15 @@
           <input type="number" id="newJobUsed" min="0" step="0.5" placeholder="Hours already used (optional)" />
           <input type="number" id="newJobBudget" min="0" step="0.5" placeholder="Total hours budget (optional)" />
           <button class="btn btn-primary" id="addJobBtn">Add Job</button>
+          <button class="btn btn-ghost" id="importJobsBtn" title="Import jobs from Excel or CSV">Import from Excel</button>
+          <input type="file" id="importJobsFile" accept=".xlsx,.csv" style="display:none;" />
         </div>
         <div class="jobs-list" id="jobsList" style="margin-top:14px;"></div>
       </div>
+
+      <div id="tab-notes" style="display:none;"></div>
+      <div id="tab-map" style="display:none;"><div id="jobMap" style="height:480px;border-radius:6px;"></div></div>
+      <div id="tab-dashboard" style="display:none;"></div>
     </div>
   </div>
 
@@ -155,6 +170,18 @@
 
 </div>
 
+<!-- Help Bar (Electron only) -->
+<div class="help-bar" id="helpBar" style="display:none;">
+  <button class="help-toggle-btn" id="helpToggleBtn" data-action="show-help">
+    <svg width="15" height="15" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="10" cy="10" r="8.5" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M7.5 7.5a2.5 2.5 0 0 1 5 0c0 1.5-2.5 2-2.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <circle cx="10" cy="14.5" r=".85" fill="currentColor"/>
+    </svg>
+    Help
+  </button>
+</div>
+
 <!-- Settings Bar (Electron only) -->
 <div class="settings-bar" id="settingsBar" style="display:none;">
   <button class="settings-toggle-btn" id="settingsToggleBtn" title="Settings">
@@ -165,11 +192,14 @@
     Settings
   </button>
   <div class="settings-panel" id="settingsPanel">
-    <label class="settings-item">
-      <span>Daily reminder</span>
+    <div class="settings-item" style="flex-direction:column;align-items:stretch;gap:5px;">
+      <span style="font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);">Daily Reminder</span>
       <input type="time" id="reminderTime" />
-      <button class="btn btn-ghost btn-xs" id="clearReminderBtn" title="Clear reminder">&#x2715;</button>
-    </label>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button class="btn btn-ghost btn-xs" id="clearReminderBtn">Clear time</button>
+        <span style="font-size:.7rem;color:var(--muted);">Windows notification at set time</span>
+      </div>
+    </div>
     <div class="settings-item settings-toggle">
       <span>Auto-start with Windows</span>
       <div class="toggle-track" id="autoStartTrack"><div class="toggle-thumb"></div></div>
@@ -197,27 +227,32 @@
       <span class="sync-dot sync-off" id="syncDot"></span>
       <span class="sync-label" id="syncLabel">Not syncing</span>
       <span class="sync-email" style="font-size:.72rem;color:var(--muted);flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
-      <button class="btn btn-ghost btn-xs sync-signin-btn" onclick="openSyncModal()">Sign in</button>
-      <button class="btn btn-ghost btn-xs sync-signout-btn" style="display:none" onclick="syncSignOut()">Sign out</button>
+      <button class="btn btn-ghost btn-xs sync-signin-btn">Sign in</button>
+      <button class="btn btn-ghost btn-xs sync-signout-btn" style="display:none">Sign out</button>
+    </div>
+    <div class="settings-divider"></div>
+    <div class="settings-item" style="justify-content:space-between;align-items:center;">
+      <span style="font-size:.78rem;color:var(--muted)">Software update</span>
+      <button class="btn btn-ghost btn-xs" id="checkUpdateBtn">Check for updates</button>
     </div>
   </div>
 </div>
 
 <!-- Changelog Modal -->
 <div id="changelogModal" style="display:none;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;">
-  <div class="import-backdrop" onclick="hideChangelog()"></div>
+  <div class="import-backdrop" id="changelogBackdrop"></div>
   <div class="import-dialog" style="max-width:480px;max-height:80vh;overflow-y:auto">
     <div class="import-dialog-title">Version History</div>
     <div id="changelogBody" class="changelog-body"></div>
     <div class="import-dialog-actions">
-      <button class="btn btn-ghost" onclick="hideChangelog()">Close</button>
+      <button class="btn btn-ghost" id="changelogCloseBtn">Close</button>
     </div>
   </div>
 </div>
 
 <!-- Theme Picker -->
 <div class="theme-bar">
-  <button id="versionBtn" class="version-badge" style="display:none" onclick="showChangelog()"></button>
+  <button id="versionBtn" class="version-badge" style="display:none"></button>
   <span>Theme</span>
   <select id="themePicker">
     <option value="light">Light</option>

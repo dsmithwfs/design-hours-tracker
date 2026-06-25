@@ -19,10 +19,10 @@
 
   db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 
-  let uid       = null;
-  let pushTimer = null;
-  let unsub     = null;
-  let skipNext  = false;
+  let uid        = null;
+  let pushTimer  = null;
+  let unsub      = null;
+  let lastPushAt = 0;
 
   function userDoc() {
     return db.doc('users/' + uid + '/sync/data');
@@ -43,7 +43,7 @@
     if (!data) return;
     var map = {
       entries: 'dht_entries', jobs: 'dht_jobs', rates: 'dht_rates',
-      mileage: 'dht_mileage', expenses: 'dht_expenses',
+      mileage: 'dht_mileage', expenses: 'dht_expenses', notes: 'dht_notes',
     };
     Object.entries(map).forEach(function (pair) {
       if (data[pair[0]] != null)
@@ -55,7 +55,7 @@
       var p = document.getElementById('themePicker');
       if (p) p.value = data.theme;
     }
-    ['renderCalendar','renderSummary','renderWeeklySummary','renderJobsList','renderRates']
+    ['renderCalendar','renderSummary','renderWeeklySummary','renderJobsList','renderRates','renderNotes']
       .forEach(function (fn) { if (typeof W[fn] === 'function') W[fn](); });
     setStatus('on');
   }
@@ -66,22 +66,24 @@
     setStatus('busy');
     clearTimeout(pushTimer);
     pushTimer = setTimeout(function () {
-      skipNext = true;
       userDoc().set({
         entries:  JSON.parse(localStorage.getItem('dht_entries')  || '{}'),
         jobs:     JSON.parse(localStorage.getItem('dht_jobs')     || '[]'),
         rates:    JSON.parse(localStorage.getItem('dht_rates')    || '[]'),
         mileage:  JSON.parse(localStorage.getItem('dht_mileage')  || '{}'),
         expenses: JSON.parse(localStorage.getItem('dht_expenses') || '{}'),
+        notes:    JSON.parse(localStorage.getItem('dht_notes')    || '[]'),
         theme:    localStorage.getItem('dht_theme') || 'light',
         savedAt:  firebase.firestore.FieldValue.serverTimestamp(),
       }).then(function () {
+        lastPushAt = Date.now();
         setStatus('on');
       }).catch(function (e) {
         console.warn('[sync] push error:', e);
         setStatus('err');
-      }).finally(function () {
-        setTimeout(function () { skipNext = false; }, 1200);
+        if (typeof W.showToast === 'function') {
+          W.showToast('Sync failed — check your connection.', 6000, { label: 'Retry', fn: function () { W.syncPush(); } });
+        }
       });
     }, 800);
   };
@@ -90,9 +92,16 @@
   function startListener() {
     if (unsub) unsub();
     unsub = userDoc().onSnapshot(function (snap) {
-      if (skipNext || !snap.exists) return;
+      if (!snap.exists) return;
+      if (snap.metadata.hasPendingWrites) return;
+      if (Date.now() - lastPushAt < 1500) return;
       applyCloud(snap.data());
-    }, function () { setStatus('err'); });
+    }, function () {
+      setStatus('err');
+      if (typeof W.showToast === 'function') {
+        W.showToast('Sync connection lost.', 6000, { label: 'Retry', fn: function () { startListener(); } });
+      }
+    });
   }
 
   // ── Auth ───────────────────────────────────────────────────────────────────

@@ -9,7 +9,6 @@ if (-not (Test-Path $TemplatePath)){ Write-Error "Template not found: $TemplateP
 $data = Get-Content $JsonPath -Raw | ConvertFrom-Json
 $jobs = @($data.jobs)
 
-# Strip leading formula-injection characters from string values before writing to Excel
 function SanitizeStr($s) {
     $s = [string]$s
     if ($s -match '^[=+\-@\t\r]') { return "'" + $s }
@@ -23,8 +22,6 @@ $excel.DisplayAlerts = $false
 $wb = $excel.Workbooks.Open($TemplatePath)
 $ws = $wb.Worksheets.Item(1)
 
-# .Value2 rejects Int32/Double on this Excel install; numeric values go through
-# .Formula (as a string) which Excel stores as a number.
 function SetCell($ws, $row, $col, $val) {
     $addr = "$([char](64 + $col))$row"
     if ($val -is [int] -or $val -is [long] -or $val -is [double] -or $val -is [decimal] -or $val -is [float]) {
@@ -34,11 +31,9 @@ function SetCell($ws, $row, $col, $val) {
     }
 }
 
-# Designer name (B6) and employee number (K4)
+# Header
 if ($data.designerName) { SetCell $ws 6 2 (SanitizeStr $data.designerName) }
 if ($data.employeeNum)  { SetCell $ws 4 11 (SanitizeStr $data.employeeNum)  }
-
-# Clear week ending then set new value
 SetCell $ws 6 11 ""
 SetCell $ws 6 11 $data.weekEnding
 
@@ -87,12 +82,12 @@ foreach ($code in $specialMap.Keys) {
     if ($tot -gt 0) { SetCell $ws $row 11 $tot }
 }
 
-# ── Mileage (rows 40-43) ──────────────────────────────────────────────────
+# Mileage (rows 40-43)
 $mileageRows = 40,41,42,43
 foreach ($mr in $mileageRows) {
-    SetCell $ws $mr 1 ""   # P.O. / Job #
-    SetCell $ws $mr 2 ""   # Description (merged B:D — write to B)
-    SetCell $ws $mr 5 0    # Miles
+    SetCell $ws $mr 1 ""
+    SetCell $ws $mr 2 ""
+    SetCell $ws $mr 5 0
 }
 
 $mileageEntries = @($data.mileage)
@@ -100,23 +95,18 @@ $maxMileage = [Math]::Min($mileageEntries.Count, $mileageRows.Count)
 for ($i = 0; $i -lt $maxMileage; $i++) {
     $entry = $mileageEntries[$i]
     $mr    = $mileageRows[$i]
-    $miles = [double]$entry.miles
-    $rate  = [double]$entry.rate
-
     SetCell $ws $mr 1 (SanitizeStr $entry.po)
     SetCell $ws $mr 2 (SanitizeStr $entry.description)
-    SetCell $ws $mr 5 $miles
-    # Overwrite the extended-amount formula with the user's actual rate
-    $amtAddr = "I$mr"
-    $ws.Range($amtAddr).Formula = "=E$mr*$rate"
+    SetCell $ws $mr 5 ([double]$entry.miles)
+    $ws.Range("I$mr").Formula = "=E$mr*$([double]$entry.rate)"
 }
 
-# ── Expenses (rows 48-50) ─────────────────────────────────────────────────
+# Expenses (rows 48-50)
 $expenseRows = 48,49,50
 foreach ($er in $expenseRows) {
-    SetCell $ws $er 1 ""   # P.O. / Job #
-    SetCell $ws $er 2 ""   # Description (merged B:H — write to B)
-    SetCell $ws $er 9 0    # Amount (merged I:L — write to I)
+    SetCell $ws $er 1 ""
+    SetCell $ws $er 2 ""
+    SetCell $ws $er 9 0
 }
 
 $expenseEntries = @($data.expenses)
@@ -124,19 +114,18 @@ $maxExpenses = [Math]::Min($expenseEntries.Count, $expenseRows.Count)
 for ($i = 0; $i -lt $maxExpenses; $i++) {
     $entry  = $expenseEntries[$i]
     $er     = $expenseRows[$i]
-    $amount = [double]$entry.amount
-
     SetCell $ws $er 1 (SanitizeStr $entry.po)
     SetCell $ws $er 2 (SanitizeStr $entry.description)
-    SetCell $ws $er 9 $amount
+    SetCell $ws $er 9 ([double]$entry.amount)
 }
 
-$datePart   = $data.weekEnding -replace '/', '-'
-$outputPath = (Split-Path $TemplatePath) + "\Timesheet-$datePart.xlsx"
-$wb.SaveAs($outputPath, 51)
+$datePart = $data.weekEnding -replace '/', '-'
+$pdfPath  = (Split-Path $TemplatePath) + "\Timesheet-$datePart.pdf"
+
+$wb.ExportAsFixedFormat(0, $pdfPath)
 $wb.Close($false)
 $excel.Quit()
 [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null
 
-Write-Host "Saved: $outputPath"
-Start-Process $outputPath
+Write-Host "Saved: $pdfPath"
+Start-Process $pdfPath

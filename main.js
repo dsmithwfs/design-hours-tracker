@@ -8,7 +8,7 @@ const { spawn } = require('child_process');
 // ── Auto-updater ───────────────────────────────────────────────────────────
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
-autoUpdater.on('error', () => {}); // silently ignore network/offline errors
+autoUpdater.on('error', err => { console.warn('[updater]', err?.message || err); });
 
 autoUpdater.on('update-downloaded', () => {
   dialog.showMessageBox({
@@ -99,6 +99,20 @@ app.on('window-all-closed', () => {
 // IPC: Settings
 ipcMain.handle('get-version',  () => app.getVersion());
 ipcMain.handle('get-settings', () => loadSettings());
+let _updateCheckInFlight = false;
+ipcMain.handle('check-for-updates', () => {
+  if (!app.isPackaged) return 'dev';
+  if (_updateCheckInFlight) return 'checking';
+  _updateCheckInFlight = true;
+  return new Promise(resolve => {
+    const done = r => { _updateCheckInFlight = false; resolve(r); };
+    autoUpdater.once('update-not-available', () => done('latest'));
+    autoUpdater.once('update-available',     () => done('available'));
+    autoUpdater.once('error',                () => done('error'));
+    const t = setTimeout(() => done('error'), 15000);
+    autoUpdater.checkForUpdates().catch(() => { clearTimeout(t); done('error'); });
+  });
+});
 
 ipcMain.handle('save-settings', (_event, s) => {
   saveSettings(s);
@@ -107,8 +121,54 @@ ipcMain.handle('save-settings', (_event, s) => {
   return { ok: true };
 });
 
+// Validate fill-timesheet IPC payload to prevent malformed or oversized data
+function validateTimesheetPayload(p) {
+  if (!p || typeof p !== 'object') throw new Error('Invalid payload');
+  if (typeof p.weekEnding !== 'string' || p.weekEnding.length > 20) throw new Error('Invalid weekEnding');
+  if (p.designerName !== undefined && (typeof p.designerName !== 'string' || p.designerName.length > 100)) throw new Error('Invalid designerName');
+  if (p.employeeNum  !== undefined && (typeof p.employeeNum  !== 'string' || p.employeeNum.length  > 20))  throw new Error('Invalid employeeNum');
+  if (!Array.isArray(p.jobs) || p.jobs.length > 10) throw new Error('Invalid jobs');
+  for (const j of p.jobs) {
+    if (typeof j.number !== 'string' || typeof j.name !== 'string') throw new Error('Invalid job entry');
+    if (j.number.length > 50 || j.name.length > 100) throw new Error('Job field too long');
+  }
+  if (JSON.stringify(p).length > 512 * 1024) throw new Error('Payload too large');
+}
+
 // IPC: Fill timesheet — write payload to temp JSON, invoke PS1, open result
+ipcMain.handle('fill-timesheet-pdf', async (_event, payload) => {
+  validateTimesheetPayload(payload);
+  const tmpJson = path.join(os.tmpdir(), `dht-ts-pdf-${Date.now()}.json`);
+  fs.writeFileSync(tmpJson, JSON.stringify(payload, null, 2), 'utf8');
+
+  const root         = app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked')
+    : __dirname;
+  const ps1          = path.join(root, 'scripts', 'fill-timesheet-pdf.ps1');
+  const templatePath = path.join(root, 'assets', 'Designer Timesheet.xlsx');
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn('powershell.exe', [
+      '-ExecutionPolicy', 'Bypass', '-NonInteractive', '-File', ps1,
+      '-JsonPath', tmpJson, '-TemplatePath', templatePath,
+    ]);
+    let stdout = '', stderr = '';
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+    proc.on('close', code => {
+      try { fs.unlinkSync(tmpJson); } catch {}
+      if (code === 0) {
+        const match = stdout.match(/Saved: (.+\.pdf)/);
+        resolve({ ok: true, savedPath: match ? match[1].trim() : null });
+      } else {
+        reject(new Error(stderr.trim() || stdout.trim() || `PowerShell exited with code ${code}`));
+      }
+    });
+  });
+});
+
 ipcMain.handle('fill-timesheet', async (_event, payload) => {
+  validateTimesheetPayload(payload);
   const tmpJson = path.join(os.tmpdir(), `dht-timesheet-${Date.now()}.json`);
   fs.writeFileSync(tmpJson, JSON.stringify(payload, null, 2), 'utf8');
 
