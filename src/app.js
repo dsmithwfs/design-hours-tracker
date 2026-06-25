@@ -97,42 +97,7 @@ let _showArchivedJobs = false;
     selectDate(toKey(now));
   });
 
-  const TAB_IDS = ['month', 'week', 'jobs', 'rates', 'notes', 'map', 'dashboard'];
-  document.querySelectorAll('.tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const next = btn.dataset.tab;
-      const current = TAB_IDS.find(id => document.getElementById(`tab-${id}`).style.display !== 'none');
-      if (next === current) return;
-
-      document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-
-      const outEl = current ? document.getElementById(`tab-${current}`) : null;
-      const inEl  = document.getElementById(`tab-${next}`);
-
-      const show = () => {
-        if (next === 'week') renderWeeklySummary();
-        if (next === 'notes') renderNotes();
-        inEl.style.display   = '';
-        inEl.style.opacity   = '0';
-        inEl.style.transform = 'translateY(6px)';
-        if (next === 'map')       setTimeout(renderMap, 60);
-        if (next === 'dashboard') setTimeout(renderDashboard, 60);
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          inEl.style.opacity   = '1';
-          inEl.style.transform = 'translateY(0)';
-        }));
-      };
-
-      if (outEl) {
-        outEl.style.opacity   = '0';
-        outEl.style.transform = 'translateY(-6px)';
-        setTimeout(() => { outEl.style.display = 'none'; show(); }, 180);
-      } else {
-        show();
-      }
-    });
-  });
+  // Tab switching is now handled by sidebar nav items above.
 
   document.getElementById('addRateBtn').addEventListener('click', addRate);
   document.getElementById('newRateLabel').addEventListener('keydown', e => { if (e.key === 'Enter') addRate(); });
@@ -166,9 +131,51 @@ let _showArchivedJobs = false;
   // ── Web/mobile daily reminder
   if (!window.electronAPI) initWebReminder();
 
-  // Settings bar (Electron only)
+  // ── Sidebar navigation
+  document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const view = btn.dataset.view;
+      const title = btn.dataset.title || '';
+
+      document.querySelectorAll('.nav-item[data-view]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('topbarTitle').textContent = title;
+
+      // Show/hide month nav (only relevant on hours view)
+      const monthNav = document.querySelector('.topbar-month-nav');
+      const todayBtn = document.getElementById('todayBtn');
+      const addBtn   = document.getElementById('topbarAddBtn');
+      const isHours  = view === 'hours';
+      if (monthNav) monthNav.style.display = isHours ? '' : 'none';
+      if (todayBtn) todayBtn.style.display  = isHours ? '' : 'none';
+      if (addBtn)   addBtn.style.display    = isHours ? '' : 'none';
+
+      document.querySelectorAll('.body-view').forEach(v => {
+        v.classList.remove('active');
+        v.style.display = 'none';
+      });
+      const target = document.getElementById(`view-${view}`);
+      if (target) {
+        target.style.display = '';
+        requestAnimationFrame(() => target.classList.add('active'));
+      }
+
+      if (view === 'week')      renderWeeklySummary();
+      if (view === 'notes')     renderNotes();
+      if (view === 'map')       setTimeout(renderMap, 150);
+      if (view === 'dashboard') setTimeout(renderDashboard, 60);
+    });
+  });
+
+  // ── Topbar add button: focus side panel / scroll to form
+  document.getElementById('topbarAddBtn')?.addEventListener('click', () => {
+    const today = toKey(new Date());
+    if (selectedDate !== today) selectDate(today);
+    document.querySelector('#sideContent input, #sideContent select')?.focus();
+  });
+
+  // ── Settings panel (Electron only)
   if (window.electronAPI) {
-    const bar        = document.getElementById('settingsBar');
     const toggleBtn  = document.getElementById('settingsToggleBtn');
     const panel      = document.getElementById('settingsPanel');
     const timeInput  = document.getElementById('reminderTime');
@@ -178,15 +185,19 @@ let _showArchivedJobs = false;
     const savedLabel = document.getElementById('settingsSaved');
     let autoStart    = false;
 
-    bar.style.display = 'block';
-    const helpBar = document.getElementById('helpBar');
-    if (helpBar) helpBar.style.display = 'block';
-
     window.electronAPI.getVersion().then(v => {
       const el = document.getElementById('electronVersion');
       if (el) el.textContent = 'v' + v;
       const badge = document.getElementById('versionBtn');
       if (badge) { badge.textContent = 'v' + v; badge.style.display = ''; }
+      // Update sidebar user display
+      const nameStored = localStorage.getItem('dht_designer_name');
+      if (nameStored) {
+        const el2 = document.getElementById('sidebarUserName');
+        if (el2) el2.textContent = nameStored;
+        const av = document.getElementById('sidebarAvatar');
+        if (av) av.textContent = nameStored.charAt(0).toUpperCase();
+      }
     });
 
     window.electronAPI.getSettings().then(s => {
@@ -195,39 +206,41 @@ let _showArchivedJobs = false;
       track.classList.toggle('on', autoStart);
     });
 
-    // Profile fields
     const nameInput = document.getElementById('designerNameInput');
     const empInput  = document.getElementById('employeeNumInput');
     if (nameInput) {
       nameInput.value = localStorage.getItem('dht_designer_name') || '';
-      nameInput.addEventListener('input', () => localStorage.setItem('dht_designer_name', nameInput.value));
+      nameInput.addEventListener('input', () => {
+        localStorage.setItem('dht_designer_name', nameInput.value);
+        const el2 = document.getElementById('sidebarUserName');
+        if (el2) el2.textContent = nameInput.value || 'Designer';
+        const av = document.getElementById('sidebarAvatar');
+        if (av) av.textContent = (nameInput.value || 'D').charAt(0).toUpperCase();
+      });
     }
     if (empInput) {
       empInput.value = localStorage.getItem('dht_employee_num') || '';
       empInput.addEventListener('input', () => localStorage.setItem('dht_employee_num', empInput.value));
     }
 
-    toggleBtn.addEventListener('click', e => {
+    toggleBtn?.addEventListener('click', e => {
       e.stopPropagation();
       panel.classList.toggle('open');
     });
 
     document.addEventListener('click', e => {
-      if (!bar.contains(e.target)) panel.classList.remove('open');
+      if (!panel.contains(e.target) && e.target !== toggleBtn) panel.classList.remove('open');
     });
 
-    clearBtn.addEventListener('click', () => { timeInput.value = ''; });
+    clearBtn?.addEventListener('click', () => { timeInput.value = ''; });
 
-    track.addEventListener('click', () => {
+    track?.addEventListener('click', () => {
       autoStart = !autoStart;
       track.classList.toggle('on', autoStart);
     });
 
-    saveBtn.addEventListener('click', async () => {
-      await window.electronAPI.saveSettings({
-        reminderTime: timeInput.value || null,
-        autoStart,
-      });
+    saveBtn?.addEventListener('click', async () => {
+      await window.electronAPI.saveSettings({ reminderTime: timeInput.value || null, autoStart });
       savedLabel.textContent = 'Saved!';
       setTimeout(() => { savedLabel.textContent = ''; panel.classList.remove('open'); }, 1500);
     });
@@ -240,13 +253,17 @@ let _showArchivedJobs = false;
         const result = await window.electronAPI.checkForUpdates();
         checkUpdateBtn.disabled = false;
         checkUpdateBtn.textContent = 'Check for updates';
-        if (result === 'latest')    showToast('You\'re on the latest version.', 4000);
+        if (result === 'latest')         showToast('You\'re on the latest version.', 4000);
         else if (result === 'available') showToast('Update found — downloading…', 5000);
-        else if (result === 'dev')  showToast('Running in dev mode — updates disabled.', 4000);
-        else if (result === 'checking') showToast('Already checking for updates…', 3000);
+        else if (result === 'dev')       showToast('Running in dev mode — updates disabled.', 4000);
+        else if (result === 'checking')  showToast('Already checking for updates…', 3000);
         else showToast('Could not check for updates. Check your connection.', 5000);
       });
     }
+
+    // Show PDF export in sidebar
+    const pdfBtn = document.getElementById('exportPdfBtn');
+    if (pdfBtn) pdfBtn.style.display = '';
   }
 
   // Wire static HTML elements that previously used inline onclick
@@ -293,6 +310,8 @@ let _showArchivedJobs = false;
 
   renderCalendar();
   renderSummary();
+  renderStatStrip();
+  renderRightColJobs();
   renderWeeklySummary();
   renderJobsList();
   renderRates();
@@ -316,6 +335,8 @@ function navigate(dir) {
     if (currentMonth < 0)  { currentMonth = 11; currentYear--; }
     renderCalendar();
     renderSummary();
+    renderStatStrip();
+    renderRightColJobs();
     grid.classList.add(inClass);
     setTimeout(() => grid.classList.remove(inClass), 200);
   }, 150);
@@ -323,6 +344,77 @@ function navigate(dir) {
 
 function dayTotalHours(entries) {
   return entries.reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
+}
+
+// ── Stat strip ─────────────────────────────────────────────────────────────
+function renderStatStrip() {
+  const allEntries = S.entries;
+  const now = new Date();
+
+  // Month total
+  const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-`;
+  let monthTotal = 0;
+  for (const [key, entries] of Object.entries(allEntries)) {
+    if (key.startsWith(monthPrefix)) monthTotal += dayTotalHours(entries);
+  }
+
+  // Week total
+  const weekStart = new Date(currentWeekStart);
+  let weekTotal = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + i);
+    const k = toKey(d);
+    weekTotal += dayTotalHours(allEntries[k] || []);
+  }
+
+  // Mileage this month
+  const allMileage = S.mileage;
+  let mileTotal = 0;
+  for (const [key, rows] of Object.entries(allMileage)) {
+    if (key.startsWith(monthPrefix)) rows.forEach(r => { mileTotal += parseFloat(r.miles) || 0; });
+  }
+
+  // Expenses this month
+  const allExpenses = S.expenses;
+  let expTotal = 0;
+  for (const [key, rows] of Object.entries(allExpenses)) {
+    if (key.startsWith(monthPrefix)) rows.forEach(r => { expTotal += parseFloat(r.amount) || 0; });
+  }
+
+  const fmt = v => v % 1 === 0 ? v + ' h' : v.toFixed(1) + ' h';
+  const statMonth = document.getElementById('statMonth');
+  const statWeek  = document.getElementById('statWeek');
+  const statMile  = document.getElementById('statMileage');
+  const statExp   = document.getElementById('statExpenses');
+  if (statMonth) { statMonth.textContent = fmt(monthTotal); statMonth.className = 'stat-value' + (monthTotal > 0 ? ' highlight' : ''); }
+  if (statWeek)  statWeek.textContent  = fmt(weekTotal);
+  if (statMile)  statMile.textContent  = mileTotal > 0 ? mileTotal.toFixed(0) + ' mi' : '—';
+  if (statExp)   statExp.textContent   = expTotal > 0 ? '$' + expTotal.toFixed(0) : '—';
+}
+
+// ── Right-col jobs list ─────────────────────────────────────────────────────
+function renderRightColJobs() {
+  const el = document.getElementById('rightColJobs');
+  if (!el) return;
+  const allEntries = S.entries;
+  const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-`;
+  const totals = {};
+  for (const [key, entries] of Object.entries(allEntries)) {
+    if (!key.startsWith(monthPrefix)) continue;
+    entries.forEach(e => {
+      const name = e.job || e.type || 'Other';
+      totals[name] = (totals[name] || 0) + (parseFloat(e.hours) || 0);
+    });
+  }
+  const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  if (!sorted.length) { el.innerHTML = ''; return; }
+  const COLORS = ['#185FA5','#d4720a','#7b4fb8','#2e8b4a','#1a8a8a','#c83030','#a07800','#4040c8'];
+  el.innerHTML = `<div class="rcj-label">Jobs this month</div>` +
+    sorted.map(([name, hrs], i) => {
+      const h = hrs % 1 === 0 ? hrs + ' h' : hrs.toFixed(1) + ' h';
+      return `<div class="rcj-row"><div class="rcj-dot" style="background:${COLORS[i % COLORS.length]}"></div><span class="rcj-name">${name}</span><span class="rcj-hrs">${h}</span></div>`;
+    }).join('');
 }
 
 function jobLifetimeHours(jobName) {
@@ -428,7 +520,10 @@ function getUSHolidays(year) {
 function renderCalendar() {
   const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  document.getElementById('monthLabel').textContent = `${MONTHS[currentMonth]} ${currentYear}`;
+  const monthStr = `${MONTHS[currentMonth]} ${currentYear}`;
+  document.getElementById('monthLabel').textContent = monthStr;
+  const calTitle = document.getElementById('calAreaTitle');
+  if (calTitle) calTitle.textContent = monthStr;
 
   const grid = document.getElementById('calGrid');
   grid.innerHTML = '';
@@ -461,9 +556,10 @@ function renderCalendar() {
 
     const holiday = holidays[key];
     const el = document.createElement('div');
+    const hmClass = total >= 9 ? ' hm-3' : total >= 7.5 ? ' hm-2' : total > 0 ? ' hm-1' : '';
     el.className = 'cal-day'
       + (key === today ? ' today' : '')
-      + (dayEntries.length ? ' has-entry' : '')
+      + hmClass
       + (key === selectedDate ? ' selected' : '')
       + (holiday ? ' holiday' : '');
     el.dataset.key = key;
@@ -648,7 +744,7 @@ function deleteEntry(key, index) {
       if (!cur[key]) cur[key] = [];
       cur[key].splice(Math.min(index, cur[key].length), 0, removed);
       S.entries = cur;
-      renderCalendar(); renderSummary(); renderWeeklySummary(); renderJobsList(); renderSidePanel(key);
+      renderCalendar(); renderSummary(); renderStatStrip(); renderRightColJobs(); renderWeeklySummary(); renderJobsList(); renderSidePanel(key);
     }
   });
 }
@@ -2166,7 +2262,7 @@ function openEditEntry(key, idx) {
           all[key][idx] = { type: category, hours, notes };
         }
         S.entries = all;
-        renderCalendar(); renderSummary(); renderWeeklySummary(); renderJobsList(); renderSidePanel(key);
+        renderCalendar(); renderSummary(); renderStatStrip(); renderRightColJobs(); renderWeeklySummary(); renderJobsList(); renderSidePanel(key);
         showToast('Entry updated.');
       });
     }, 120);
@@ -2547,8 +2643,8 @@ let _jobMap = null;
 let _jobMarkers = null;
 
 function renderMap() {
-  const tabEl = document.getElementById('tab-map');
-  if (!tabEl || tabEl.style.display === 'none') return;
+  const mapEl = document.getElementById('jobMap');
+  if (!mapEl || mapEl.offsetWidth === 0) return;
   const jobs = S.jobs.filter(j => j.lat != null && j.lng != null);
 
   if (!_jobMap) {
@@ -2564,8 +2660,8 @@ function renderMap() {
   }
 
   if (!jobs.length) {
-    document.getElementById('tab-map').insertAdjacentHTML('afterbegin',
-      '<p class="map-empty-msg placeholder">Edit a job and add an address to see it pinned here.</p>');
+    mapEl.insertAdjacentHTML('afterbegin',
+      '<p class="map-empty-msg placeholder" style="padding:20px">Edit a job and add an address to see it pinned here.</p>');
     return;
   }
   document.querySelector('.map-empty-msg')?.remove();
