@@ -1,80 +1,234 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://nominatim.openstreetmap.org; img-src 'self' data: https://*.tile.openstreetmap.org; font-src 'self';" />
   <title>Design Hours Tracker</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="leaflet.css" />
+  <script src="xlsx.mini.min.js"></script>
+  <script src="leaflet.js"></script>
 </head>
 <body>
 
-<div class="app">
+<div class="app-shell">
 
-  <!-- Calendar Column -->
-  <div>
-    <div class="panel">
-      <header>
-        <h1>
-          <img id="siteLogo" src="Wig logo final USE.png" alt="Wiginton Logo" />
-          Design Hours Tracker
-        </h1>
-        <div class="nav-row">
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <img src="Wig logo final USE.png" alt="Wiginton Logo" class="sidebar-logo-img" />
+      <span class="sidebar-logo-text">Design Hours</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="sidebar-nav-group">Tracking</div>
+      <button class="nav-item active" data-view="hours" data-title="Log hours">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Log hours
+        <span class="nav-badge" id="navTodayBadge">Today</span>
+      </button>
+      <button class="nav-item" data-view="week" data-title="Mileage &amp; expenses">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/><path d="m3.05 11 .44-2"/><path d="m5.72 5.72.7.7"/><path d="M12 3v1"/><path d="m20.95 13-.44 2"/><path d="m18.28 18.28-.7-.7"/><path d="M12 21v-1"/><path d="m3.05 13 .44 2"/><path d="m5.72 18.28.7-.7"/><path d="M20.95 11l-.44-2"/><path d="m18.28 5.72-.7.7"/></svg>
+        Mileage &amp; expenses
+      </button>
+      <div class="sidebar-nav-group">Reporting</div>
+      <button class="nav-item" data-view="dashboard" data-title="Dashboard">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </button>
+      <button class="nav-item" data-view="jobs" data-title="Jobs">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+        Jobs
+      </button>
+      <button class="nav-item" data-view="rates" data-title="Rates &amp; calcs">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        Rates &amp; calcs
+      </button>
+      <button class="nav-item" data-view="notes" data-title="Notes">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Notes
+      </button>
+      <button class="nav-item" data-view="map" data-title="Map">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+        Map
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="nav-item sidebar-export-btn" id="exportTimesheetBtn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export timesheet
+      </button>
+      <button class="nav-item sidebar-export-btn" id="exportPdfBtn" style="display:none;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Export to PDF
+      </button>
+      <div class="sidebar-user-row" id="sidebarUserRow">
+        <div class="sidebar-avatar" id="sidebarAvatar">?</div>
+        <div class="sidebar-user-info">
+          <div class="sidebar-user-name" id="sidebarUserName">Designer</div>
+          <span class="offline-dot" id="offlineDot" title="Online"></span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <div class="main">
+
+    <!-- Topbar -->
+    <div class="topbar">
+      <span class="topbar-title" id="topbarTitle">Log hours</span>
+      <div class="topbar-right">
+        <div class="topbar-month-nav">
           <button id="prevMonth">&#8249;</button>
           <span class="month-label" id="monthLabel"></span>
           <button id="nextMonth">&#8250;</button>
-          <button id="todayBtn">Today</button>
         </div>
-      </header>
-      <div class="cal-grid" id="calGrid"></div>
+        <button class="topbar-today-btn" id="todayBtn">Today</button>
+        <button class="topbar-add-btn" id="topbarAddBtn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add entry
+        </button>
+        <button class="topbar-icon-btn" id="helpToggleBtn" data-action="show-help" title="Help">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="10" cy="10" r="8.5" stroke="currentColor" stroke-width="1.6"/><path d="M7.5 7.5a2.5 2.5 0 0 1 5 0c0 1.5-2.5 2-2.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="14.5" r=".85" fill="currentColor"/></svg>
+        </button>
+        <button class="topbar-icon-btn" id="settingsToggleBtn" title="Settings">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" stroke-width="1.6"/><path d="M17.5 10c0-.34-.03-.68-.08-1l1.6-1.24a.4.4 0 0 0 .1-.5l-1.52-2.63a.4.4 0 0 0-.49-.17l-1.88.75a7.4 7.4 0 0 0-1.73-1l-.28-2A.4.4 0 0 0 12.78 2H9.22a.4.4 0 0 0-.4.34l-.28 2a7.4 7.4 0 0 0-1.73 1L4.93 4.6a.4.4 0 0 0-.49.17L2.92 7.4a.39.39 0 0 0 .1.5L4.6 9.13A6.8 6.8 0 0 0 4.5 10c0 .34.03.68.08 1L3 12.24a.4.4 0 0 0-.1.5l1.52 2.63a.4.4 0 0 0 .49.17l1.88-.75a7.4 7.4 0 0 0 1.73 1l.28 2c.06.2.24.34.44.34h3.54a.4.4 0 0 0 .4-.34l.28-2a7.4 7.4 0 0 0 1.73-1l1.88.75a.4.4 0 0 0 .49-.17l1.52-2.63a.39.39 0 0 0-.1-.5L17.43 11c.05-.32.07-.66.07-1Z" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
+        <button id="versionBtn" class="version-badge" style="display:none"></button>
+      </div>
     </div>
 
-    <!-- Monthly Summary & Jobs -->
-    <div class="panel" style="margin-top:16px;">
-      <div class="tab-row">
-        <button class="tab active" data-tab="month">Month Summary</button>
-        <button class="tab" data-tab="week">Week Summary</button>
-        <button class="tab" data-tab="jobs">Manage Jobs</button>
-        <button class="tab" data-tab="rates">Rates &amp; Calcs</button>
-      </div>
-
-      <div id="tab-month">
-        <table class="summary-table" id="summaryTable">
-          <thead><tr><th>Job</th><th>This Month</th><th>Used / Budget</th><th>Remaining</th></tr></thead>
-          <tbody></tbody>
-        </table>
-        <div class="export-row">
-          <button class="btn btn-ghost" id="exportCsv">Export CSV</button>
-          <button class="btn btn-ghost" id="exportJson">Export JSON</button>
-        </div>
-        <div class="export-row backup-row">
-          <button class="btn btn-ghost" id="exportBackupBtn">Export Backup</button>
-          <button class="btn btn-ghost" id="importBackupBtn">Import Backup</button>
+    <!-- Settings panel (attached to topbar) -->
+    <div class="settings-panel" id="settingsPanel">
+      <div class="settings-item" style="flex-direction:column;align-items:stretch;gap:5px;">
+        <span style="font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);">Daily Reminder</span>
+        <input type="time" id="reminderTime" />
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button class="btn btn-ghost btn-xs" id="clearReminderBtn">Clear time</button>
+          <span style="font-size:.7rem;color:var(--muted);">Windows notification at set time</span>
         </div>
       </div>
+      <div class="settings-item settings-toggle">
+        <span>Auto-start with Windows</span>
+        <div class="toggle-track" id="autoStartTrack"><div class="toggle-thumb"></div></div>
+      </div>
+      <div class="settings-actions">
+        <button class="btn btn-primary btn-xs" id="saveSettingsBtn">Save</button>
+        <span class="settings-saved" id="settingsSaved"></span>
+      </div>
+      <div class="settings-divider"></div>
+      <label class="settings-item" style="flex-direction:column;align-items:flex-start;gap:4px;">
+        <span style="font-size:.72rem;color:var(--muted);font-weight:600">Designer Name</span>
+        <input type="text" id="designerNameInput" placeholder="Your name…" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:.82rem;" />
+      </label>
+      <label class="settings-item" style="flex-direction:column;align-items:flex-start;gap:4px;margin-top:6px;">
+        <span style="font-size:.72rem;color:var(--muted);font-weight:600">Employee #</span>
+        <input type="text" id="employeeNumInput" placeholder="e.g. 260153" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:.82rem;" />
+      </label>
+      <div class="settings-divider"></div>
+      <div class="settings-item" style="justify-content:space-between">
+        <span style="color:var(--muted);font-size:.78rem">Design Hours Tracker</span>
+        <span id="electronVersion" style="color:var(--muted);font-size:.78rem;font-weight:600"></span>
+      </div>
+      <div class="settings-divider"></div>
+      <div class="settings-item sync-row">
+        <span class="sync-dot sync-off" id="syncDot"></span>
+        <span class="sync-label" id="syncLabel">Not syncing</span>
+        <span class="sync-email" style="font-size:.72rem;color:var(--muted);flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+        <button class="btn btn-ghost btn-xs sync-signin-btn">Sign in</button>
+        <button class="btn btn-ghost btn-xs sync-signout-btn" style="display:none">Sign out</button>
+      </div>
+      <div class="settings-divider"></div>
+      <div class="settings-item" style="justify-content:space-between;align-items:center;">
+        <span style="font-size:.78rem;color:var(--muted)">Theme</span>
+        <select id="themePicker" style="width:auto;padding:3px 8px;font-size:.8rem;">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="slate">Slate</option>
+          <option value="forest">Forest</option>
+          <option value="amber">Amber</option>
+          <option value="rose">Rose</option>
+          <option value="vaporwave">Vaporwave</option>
+        </select>
+      </div>
+      <div class="settings-divider"></div>
+      <div class="settings-item" style="justify-content:space-between;align-items:center;">
+        <span style="font-size:.78rem;color:var(--muted)">Software update</span>
+        <button class="btn btn-ghost btn-xs" id="checkUpdateBtn">Check for updates</button>
+      </div>
+    </div>
 
-      <div id="tab-week" style="display:none;">
+    <!-- ── View: Log hours (calendar + right panel) ── -->
+    <div class="body-view active" id="view-hours">
+      <div class="cal-col">
+        <!-- Stat strip -->
+        <div class="stat-strip" id="statStrip">
+          <div class="stat-cell">
+            <div class="stat-label">Month</div>
+            <div class="stat-value" id="statMonth">—</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-label">Week</div>
+            <div class="stat-value" id="statWeek">—</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-label">Mileage</div>
+            <div class="stat-value" id="statMileage">—</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-label">Expenses</div>
+            <div class="stat-value" id="statExpenses">—</div>
+          </div>
+        </div>
+        <!-- Calendar -->
+        <div class="cal-area">
+          <div class="cal-area-header">
+            <span class="cal-area-title" id="calAreaTitle"></span>
+            <div class="cal-heat-legend">
+              <span class="legend-label">Less</span>
+              <div class="legend-sq hm-1"></div>
+              <div class="legend-sq hm-2"></div>
+              <div class="legend-sq hm-3"></div>
+              <span class="legend-label">More</span>
+            </div>
+          </div>
+          <div class="cal-grid" id="calGrid"></div>
+        </div>
+      </div>
+
+      <!-- Right column: day entries + jobs -->
+      <div class="right-col" id="sidePanel">
+        <div class="right-col-day-header">
+          <div>
+            <div class="side-title" id="sidePanelTitle">Select a day</div>
+            <div class="side-date" id="sidePanelDate"></div>
+          </div>
+        </div>
+        <div id="sideContent">
+          <p class="placeholder">Click a day on the calendar to log hours.</p>
+        </div>
+        <div class="right-col-jobs" id="rightColJobs"></div>
+      </div>
+    </div>
+
+    <!-- ── View: Mileage & Expenses (week tab content) ── -->
+    <div class="body-view" id="view-week" style="display:none;">
+      <div class="panel panel-full">
         <div class="week-nav" id="weekNav"></div>
         <table class="summary-table" id="weekTable">
           <thead><tr><th>Job</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th><th>Total</th></tr></thead>
           <tbody></tbody>
         </table>
-        <!-- Mileage Section -->
         <div class="mileage-section">
           <div class="mileage-header">
             <span class="mileage-title">Mileage</span>
             <button class="btn btn-ghost btn-sm" id="addMileageBtn">+ Add Entry</button>
           </div>
           <table class="mileage-table" id="mileageTable">
-            <thead>
-              <tr>
-                <th>P.O. / Job #</th>
-                <th>Description &amp; Date</th>
-                <th>Miles</th>
-                <th>Rate ($/mi)</th>
-                <th>Amount</th>
-                <th></th>
-              </tr>
-            </thead>
+            <thead><tr><th>P.O. / Job #</th><th>Description &amp; Date</th><th>Miles</th><th>Rate ($/mi)</th><th>Amount</th><th></th></tr></thead>
             <tbody id="mileageTbody"></tbody>
           </table>
           <div class="mileage-total-row">
@@ -82,22 +236,13 @@
             <span id="mileageTotal">$0.00</span>
           </div>
         </div>
-
-        <!-- Expense Section -->
         <div class="mileage-section">
           <div class="mileage-header">
             <span class="mileage-title">Expenses</span>
             <button class="btn btn-ghost btn-sm" id="addExpenseBtn">+ Add Entry</button>
           </div>
           <table class="mileage-table" id="expenseTable">
-            <thead>
-              <tr>
-                <th>P.O. / Job #</th>
-                <th>Description &amp; Date</th>
-                <th>Amount ($)</th>
-                <th></th>
-              </tr>
-            </thead>
+            <thead><tr><th>P.O. / Job #</th><th>Description &amp; Date</th><th>Amount ($)</th><th></th></tr></thead>
             <tbody id="expenseTbody"></tbody>
           </table>
           <div class="mileage-total-row">
@@ -105,14 +250,33 @@
             <span id="expenseTotal">$0.00</span>
           </div>
         </div>
-
-        <div class="export-row" style="margin-top:14px;align-items:center;">
-          <button class="btn btn-primary" id="exportTimesheetBtn">Export to Timesheet</button>
-          <span class="timesheet-hint" id="timesheetHint">Fills &amp; opens your Excel timesheet automatically</span>
-        </div>
       </div>
+    </div>
 
-      <div id="tab-rates" style="display:none;">
+    <!-- ── View: Dashboard ── -->
+    <div class="body-view" id="view-dashboard" style="display:none;">
+      <div class="panel panel-full" id="tab-dashboard"></div>
+    </div>
+
+    <!-- ── View: Jobs ── -->
+    <div class="body-view" id="view-jobs" style="display:none;">
+      <div class="panel panel-full">
+        <div class="add-job-row">
+          <input type="text" id="newJobNumber" placeholder="Job number…" />
+          <input type="text" id="newJobInput" placeholder="Job name…" />
+          <input type="number" id="newJobUsed" min="0" step="0.5" placeholder="Hours already used (optional)" />
+          <input type="number" id="newJobBudget" min="0" step="0.5" placeholder="Total hours budget (optional)" />
+          <button class="btn btn-primary" id="addJobBtn">Add Job</button>
+          <button class="btn btn-ghost" id="importJobsBtn" title="Import jobs from Excel or CSV">Import from Excel</button>
+          <input type="file" id="importJobsFile" accept=".xlsx,.csv" style="display:none;" />
+        </div>
+        <div class="jobs-list" id="jobsList" style="margin-top:14px;"></div>
+      </div>
+    </div>
+
+    <!-- ── View: Rates & Calcs ── -->
+    <div class="body-view" id="view-rates" style="display:none;">
+      <div class="panel panel-full">
         <div id="ratesList"></div>
         <div class="add-rate-row">
           <input type="text"   id="newRateLabel" placeholder="Label (e.g. Base Design Rate)" />
@@ -128,106 +292,53 @@
         </div>
         <div class="rates-calcs" id="ratesCalcs"></div>
       </div>
+    </div>
 
-      <div id="tab-jobs" style="display:none;">
-        <div class="add-job-row">
-          <input type="text" id="newJobNumber" placeholder="Job number…" />
-          <input type="text" id="newJobInput" placeholder="Job name…" />
-          <input type="number" id="newJobUsed" min="0" step="0.5" placeholder="Hours already used (optional)" />
-          <input type="number" id="newJobBudget" min="0" step="0.5" placeholder="Total hours budget (optional)" />
-          <button class="btn btn-primary" id="addJobBtn">Add Job</button>
+    <!-- ── View: Notes ── -->
+    <div class="body-view" id="view-notes" style="display:none;">
+      <div class="panel panel-full" id="tab-notes"></div>
+    </div>
+
+    <!-- ── View: Map ── -->
+    <div class="body-view" id="view-map" style="display:none;">
+      <div id="jobMap" style="flex:1;min-height:0;"></div>
+    </div>
+
+    <!-- ── Month/export data (hidden, used internally) ── -->
+    <div style="display:none;">
+      <div id="tab-month">
+        <table class="summary-table" id="summaryTable">
+          <thead><tr><th>Job</th><th>This Month</th><th>Used / Budget</th><th>Remaining</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="export-row">
+          <button class="btn btn-ghost" id="exportCsv">Export CSV</button>
+          <button class="btn btn-ghost" id="exportJson">Export JSON</button>
         </div>
-        <div class="jobs-list" id="jobsList" style="margin-top:14px;"></div>
+        <div class="export-row backup-row">
+          <button class="btn btn-ghost" id="exportBackupBtn">Export Backup</button>
+          <button class="btn btn-ghost" id="importBackupBtn">Import Backup</button>
+        </div>
       </div>
+      <div id="tab-week"></div>
+      <div id="tab-jobs"></div>
+      <div id="tab-rates"></div>
+      <div id="tab-map"></div>
     </div>
-  </div>
 
-  <!-- Side Panel -->
-  <div>
-    <div class="panel" id="sidePanel">
-      <div class="side-title" id="sidePanelTitle">Select a day</div>
-      <div class="side-date" id="sidePanelDate"></div>
-      <div id="sideContent">
-        <p class="placeholder">Click a day on the calendar to log hours.</p>
-      </div>
-    </div>
-  </div>
-
-</div>
-
-<!-- Settings Bar (Electron only) -->
-<div class="settings-bar" id="settingsBar" style="display:none;">
-  <button class="settings-toggle-btn" id="settingsToggleBtn" title="Settings">
-    <svg width="15" height="15" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" stroke-width="1.6"/>
-      <path d="M17.5 10c0-.34-.03-.68-.08-1l1.6-1.24a.4.4 0 0 0 .1-.5l-1.52-2.63a.4.4 0 0 0-.49-.17l-1.88.75a7.4 7.4 0 0 0-1.73-1l-.28-2A.4.4 0 0 0 12.78 2H9.22a.4.4 0 0 0-.4.34l-.28 2a7.4 7.4 0 0 0-1.73 1L4.93 4.6a.4.4 0 0 0-.49.17L2.92 7.4a.39.39 0 0 0 .1.5L4.6 9.13A6.8 6.8 0 0 0 4.5 10c0 .34.03.68.08 1L3 12.24a.4.4 0 0 0-.1.5l1.52 2.63a.4.4 0 0 0 .49.17l1.88-.75a7.4 7.4 0 0 0 1.73 1l.28 2c.06.2.24.34.44.34h3.54a.4.4 0 0 0 .4-.34l.28-2a7.4 7.4 0 0 0 1.73-1l1.88.75a.4.4 0 0 0 .49-.17l1.52-2.63a.39.39 0 0 0-.1-.5L17.43 11c.05-.32.07-.66.07-1Z" stroke="currentColor" stroke-width="1.6"/>
-    </svg>
-    Settings
-  </button>
-  <div class="settings-panel" id="settingsPanel">
-    <label class="settings-item">
-      <span>Daily reminder</span>
-      <input type="time" id="reminderTime" />
-      <button class="btn btn-ghost btn-xs" id="clearReminderBtn" title="Clear reminder">&#x2715;</button>
-    </label>
-    <div class="settings-item settings-toggle">
-      <span>Auto-start with Windows</span>
-      <div class="toggle-track" id="autoStartTrack"><div class="toggle-thumb"></div></div>
-    </div>
-    <div class="settings-actions">
-      <button class="btn btn-primary btn-xs" id="saveSettingsBtn">Save</button>
-      <span class="settings-saved" id="settingsSaved"></span>
-    </div>
-    <div class="settings-divider"></div>
-    <label class="settings-item" style="flex-direction:column;align-items:flex-start;gap:4px;">
-      <span style="font-size:.72rem;color:var(--muted);font-weight:600">Designer Name</span>
-      <input type="text" id="designerNameInput" placeholder="Your name…" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:.82rem;" />
-    </label>
-    <label class="settings-item" style="flex-direction:column;align-items:flex-start;gap:4px;margin-top:6px;">
-      <span style="font-size:.72rem;color:var(--muted);font-weight:600">Employee #</span>
-      <input type="text" id="employeeNumInput" placeholder="e.g. 260153" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:.82rem;" />
-    </label>
-    <div class="settings-divider"></div>
-    <div class="settings-item" style="justify-content:space-between">
-      <span style="color:var(--muted);font-size:.78rem">Design Hours Tracker</span>
-      <span id="electronVersion" style="color:var(--muted);font-size:.78rem;font-weight:600"></span>
-    </div>
-    <div class="settings-divider"></div>
-    <div class="settings-item sync-row">
-      <span class="sync-dot sync-off" id="syncDot"></span>
-      <span class="sync-label" id="syncLabel">Not syncing</span>
-      <span class="sync-email" style="font-size:.72rem;color:var(--muted);flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
-      <button class="btn btn-ghost btn-xs sync-signin-btn" onclick="openSyncModal()">Sign in</button>
-      <button class="btn btn-ghost btn-xs sync-signout-btn" style="display:none" onclick="syncSignOut()">Sign out</button>
-    </div>
-  </div>
-</div>
+  </div><!-- /main -->
+</div><!-- /app-shell -->
 
 <!-- Changelog Modal -->
 <div id="changelogModal" style="display:none;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;">
-  <div class="import-backdrop" onclick="hideChangelog()"></div>
+  <div class="import-backdrop" id="changelogBackdrop"></div>
   <div class="import-dialog" style="max-width:480px;max-height:80vh;overflow-y:auto">
     <div class="import-dialog-title">Version History</div>
     <div id="changelogBody" class="changelog-body"></div>
     <div class="import-dialog-actions">
-      <button class="btn btn-ghost" onclick="hideChangelog()">Close</button>
+      <button class="btn btn-ghost" id="changelogCloseBtn">Close</button>
     </div>
   </div>
-</div>
-
-<!-- Theme Picker -->
-<div class="theme-bar">
-  <button id="versionBtn" class="version-badge" style="display:none" onclick="showChangelog()"></button>
-  <span>Theme</span>
-  <select id="themePicker">
-    <option value="light">Light</option>
-    <option value="dark">Dark</option>
-    <option value="slate">Slate</option>
-    <option value="forest">Forest</option>
-    <option value="amber">Amber</option>
-    <option value="rose">Rose</option>
-    <option value="vaporwave">Vaporwave</option>
-  </select>
 </div>
 
 <script src="firebase-config.js"></script>
@@ -238,4 +349,3 @@
 <script src="app.js"></script>
 </body>
 </html>
-

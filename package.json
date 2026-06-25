@@ -1,6 +1,6 @@
 {
   "name": "design-hours-tracker",
-  "version": "1.4.3",
+  "version": "1.9.3",
   "description": "Design Hours Tracker for Wiginton Corporation",
   "main": "main.js",
   "scripts": {
@@ -11,7 +11,7 @@
     "electron-updater": "^6.8.9"
   },
   "devDependencies": {
-    "electron": "^31.0.0",
+    "electron": "^31.7.7",
     "electron-builder": "^24.0.0",
     "jimp": "^1.6.1",
     "png-to-ico": "^3.0.1"
