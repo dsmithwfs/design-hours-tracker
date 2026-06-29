@@ -54,6 +54,13 @@ function showUpdateReadyBanner() {
 // ── Constants ─────────────────────────────────────────────────────────────
 const SPECIAL_LABELS = { PTO:'PTO', HOL:'Holiday', TRG:'Training', MTG:'Design Meeting', BRV:'Bereavement' };
 
+// True only on devices with a real hover pointer (desktop). The calendar's
+// hover-preview popup relies on mouseenter/mouseleave, which touch devices
+// fire unreliably — a tap shows it but nothing dismisses it. On touch, the
+// tap already selects the day and opens the day panel, so we skip the popup.
+const HOVER_CAPABLE = typeof window.matchMedia === 'function'
+  && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
 const THEME_COLORS = {
   light:     { bg:'#f5f6fa', surface:'#ffffff', border:'#dde1ec', primary:'#3b6fd4', text:'#1e2235' },
   dark:      { bg:'#12131a', surface:'#1e2030', border:'#2e3147', primary:'#5b8ef0', text:'#e0e4f5' },
@@ -636,8 +643,8 @@ function renderCalendar() {
       }
     });
 
-    el.addEventListener('click', () => selectDate(key));
-    if (dayEntries.length) {
+    el.addEventListener('click', () => { hideCalPopup(); selectDate(key); });
+    if (dayEntries.length && HOVER_CAPABLE) {
       el.addEventListener('mouseenter', () => showCalPopup(el, key, dayEntries));
       el.addEventListener('mouseleave', () => { _popupTimer = setTimeout(hideCalPopup, 120); });
     }
@@ -3312,6 +3319,9 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.13', date: '2026-06-29', changes: [
+    'Web app on phones: tapping a day with logged hours no longer leaves a preview popup stuck on the screen',
+  ] },
   { version: '2.0.12', date: '2026-06-29', changes: [
     'Web app on phones: the sidebar is now a slide-out menu (tap ☰) and the calendar fills the screen — no more squished, hard-to-read layout',
   ] },
