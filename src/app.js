@@ -3293,6 +3293,11 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.16', date: '2026-06-29', changes: [
+    'Switching between tabs now has a smooth fade-in animation',
+    'Widened the "Log hours" panel on the right so entries are easier to read',
+    'The Windows installer now has Wiginton branding (logo sidebar and header)',
+  ] },
   { version: '2.0.15', date: '2026-06-29', changes: [
     'Behind-the-scenes maintenance — the calendar styling and shared code now live in one place across the desktop and web apps so they can\'t drift apart, plus more automated tests. No visible changes.',
   ] },

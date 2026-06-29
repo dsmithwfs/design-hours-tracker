@@ -45,7 +45,13 @@
     "nsis": {
       "artifactName": "Design-Hours-Tracker-Setup-${version}.${ext}",
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerSidebar": "build/installerSidebar.bmp",
+      "installerHeader": "build/installerHeader.bmp",
+      "installerIcon": "src/icon.ico",
+      "uninstallerIcon": "src/icon.ico",
+      "uninstallDisplayName": "Design Hours Tracker",
+      "shortcutName": "Design Hours Tracker"
     },
     "files": [
       "main.js",

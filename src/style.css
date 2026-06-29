@@ -274,7 +274,15 @@ body {
   overflow: hidden;
   min-height: 0;
 }
-.body-view.active { display: flex; }
+/* Tab-switch transition: the incoming view fades and slides up into place. */
+@keyframes viewIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.body-view.active { display: flex; animation: viewIn .24s cubic-bezier(.22,.61,.36,1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .body-view.active { animation: none; }
+}
 
 /* ── Hours view: cal-col + right-col ── */
 #view-hours {
@@ -358,7 +366,7 @@ body {
 
 /* ── Right column ── */
 .right-col {
-  width: 214px;
+  width: 290px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
