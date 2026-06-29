@@ -63,7 +63,38 @@
     return { byJob, byRow, special };
   }
 
-  const api = { mondayOf, localISODate, dayTotalHours, computeWeekRtOt };
+  // Escape the five HTML-significant characters before interpolating into innerHTML.
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // Human label for a job: "1810318 – Welcome Venture" or just the name.
+  function jobLabel(j) {
+    return j.number ? `${j.number} – ${j.name}` : j.name;
+  }
+
+  // Stable key stored on entries (uses the label so existing entries stay linked).
+  function jobKey(j) {
+    return jobLabel(j);
+  }
+
+  // Which contract group a job belongs to, by its number prefix.
+  function jobGroup(j) {
+    if (!j.number) return 'other';
+    if (j.number.startsWith('181')) return '181';
+    if (j.number.startsWith('187')) return '187';
+    return 'other';
+  }
+
+  // Deterministic color slot 0-7 for a job key string (per-job coloring).
+  function jobColorIndex(key) {
+    let h = 0;
+    for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+    return h % 8;
+  }
+
+  const api = { mondayOf, localISODate, dayTotalHours, computeWeekRtOt,
+                esc, jobLabel, jobKey, jobGroup, jobColorIndex };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   // Expose as globals so the (non-module) app scripts can call them directly.

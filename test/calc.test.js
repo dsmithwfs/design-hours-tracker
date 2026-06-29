@@ -3,7 +3,8 @@
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { mondayOf, localISODate, dayTotalHours, computeWeekRtOt } = require('../src/calc.js');
+const { mondayOf, localISODate, dayTotalHours, computeWeekRtOt,
+        esc, jobLabel, jobKey, jobGroup, jobColorIndex } = require('../src/calc.js');
 
 test('mondayOf snaps every weekday to the same Monday', () => {
   // Mon Jun 22 2026 … Sun Jun 28 2026 all belong to the week starting Jun 22.
@@ -92,4 +93,32 @@ test('computeWeekRtOt: missing costCode rows default to Overhead', () => {
   const { byRow } = computeWeekRtOt(['d'], { d: [{ job: 'A', hours: 4 }] });
   assert.ok(byRow['A||Overhead'], 'row keyed with Overhead default');
   assert.equal(byRow['A||Overhead'].rt[0], 4);
+});
+
+test('esc escapes the HTML-significant characters (XSS guard)', () => {
+  assert.equal(esc('<img src=x onerror=alert(1)>'), '&lt;img src=x onerror=alert(1)&gt;');
+  assert.equal(esc('a & "b" <c>'), 'a &amp; &quot;b&quot; &lt;c&gt;');
+  assert.equal(esc(42), '42');        // coerces non-strings
+  assert.equal(esc(''), '');
+});
+
+test('jobLabel / jobKey format "number – name", or just name', () => {
+  assert.equal(jobLabel({ number: '1810318', name: 'Welcome Venture' }), '1810318 – Welcome Venture');
+  assert.equal(jobLabel({ number: '', name: 'General' }), 'General');
+  assert.equal(jobKey({ number: '1810318', name: 'Welcome Venture' }), '1810318 – Welcome Venture');
+});
+
+test('jobGroup buckets by job-number prefix', () => {
+  assert.equal(jobGroup({ number: '1810318' }), '181');
+  assert.equal(jobGroup({ number: '1870251' }), '187');
+  assert.equal(jobGroup({ number: '2000001' }), 'other');
+  assert.equal(jobGroup({ number: '' }), 'other');
+});
+
+test('jobColorIndex is deterministic and within 0-7', () => {
+  for (const k of ['1810318 – Welcome', 'HOL', 'Tee’d Up', '']) {
+    const i = jobColorIndex(k);
+    assert.ok(Number.isInteger(i) && i >= 0 && i < 8, `${k} -> ${i}`);
+    assert.equal(jobColorIndex(k), i); // same input, same slot
+  }
 });

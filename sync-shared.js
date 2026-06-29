@@ -16,7 +16,7 @@ const SRC    = path.join(__dirname, 'src');
 const MOBILE = path.join(__dirname, '..', 'Design Hours Tracker Mobile', 'www');
 
 // Files that must stay byte-identical between the two apps.
-const SHARED = ['app.js', 'calc.js', 'firebase-sync.js', 'firebase-config.js'];
+const SHARED = ['app.js', 'calc.js', 'firebase-sync.js', 'firebase-config.js', 'calendar.css'];
 
 if (!fs.existsSync(MOBILE)) {
   console.error('Mobile www folder not found at:', MOBILE);
