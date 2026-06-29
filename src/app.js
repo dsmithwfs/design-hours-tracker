@@ -3319,6 +3319,9 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.14', date: '2026-06-29', changes: [
+    'Web app can now be installed to your phone\'s home screen as a real app — with the Wiginton icon, full-screen, and offline support (use "Add to Home Screen")',
+  ] },
   { version: '2.0.13', date: '2026-06-29', changes: [
     'Web app on phones: tapping a day with logged hours no longer leaves a preview popup stuck on the screen',
   ] },
