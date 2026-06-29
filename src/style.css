@@ -441,18 +441,24 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
-  color: var(--text);
-  opacity: .85;
+  color: var(--cal-chip-text, var(--text));
+  opacity: 1;
 }
 .job-chip-hours {
   flex-shrink: 0;
   font-weight: 600;
-  color: var(--text);
-  opacity: .7;
+  color: var(--cal-chip-text, var(--text));
+  opacity: .8;
   font-size: 8.5px;
 }
+.cal-day.hm-1 .job-chip-name,
+.cal-day.hm-1 .job-chip-hours,
+.cal-day.hm-2 .job-chip-name,
+.cal-day.hm-2 .job-chip-hours,
+.cal-day.hm-3 .job-chip-name,
+.cal-day.hm-3 .job-chip-hours { color: #1a2a3a; opacity: 1; }
 .cal-day.today .job-chip-name,
-.cal-day.today .job-chip-hours { color: rgba(255,255,255,.9); opacity: 1; }
+.cal-day.today .job-chip-hours { color: rgba(255,255,255,.95); opacity: 1; }
 
 /* ── Right column ── */
 .right-col {
