@@ -1112,7 +1112,7 @@ textarea { resize: vertical; min-height: 54px; }
 /* ── In-app update banner ── */
 #dht-update-banner {
   display: flex; align-items: center; gap: 10px;
-  padding: 8px 16px; background: var(--accent); color: #fff;
+  padding: 8px 16px; background: var(--primary); color: #fff;
   font-size: .82rem; font-weight: 600; flex-shrink: 0;
 }
 #dht-update-banner span { flex: 1; }
@@ -1120,7 +1120,7 @@ textarea { resize: vertical; min-height: 54px; }
   padding: 4px 12px; border-radius: 4px; cursor: pointer;
   border: 1px solid rgba(255,255,255,.5); font-size: .8rem; font-weight: 600;
 }
-#dht-update-restart-btn { background: #fff; color: var(--accent); }
+#dht-update-restart-btn { background: #fff; color: var(--primary); }
 #dht-update-restart-btn:hover { background: rgba(255,255,255,.85); }
 #dht-update-later-btn { background: rgba(255,255,255,.15); color: #fff; }
 #dht-update-later-btn:hover { background: rgba(255,255,255,.3); }
