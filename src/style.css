@@ -396,6 +396,7 @@ body {
   pointer-events: none;
 }
 .cal-day.selected { border-color: var(--primary); box-shadow: 0 0 0 1.5px var(--primary); }
+.cal-day:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; z-index: 1; }
 
 /* Heat map intensities */
 .cal-day.hm-1 { background: #E6F1FB; }

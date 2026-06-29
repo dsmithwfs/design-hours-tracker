@@ -82,9 +82,9 @@
       <span class="topbar-title" id="topbarTitle">Log hours</span>
       <div class="topbar-right">
         <div class="topbar-month-nav">
-          <button id="prevMonth">&#8249;</button>
+          <button id="prevMonth" aria-label="Previous month" title="Previous month">&#8249;</button>
           <span class="month-label" id="monthLabel"></span>
-          <button id="nextMonth">&#8250;</button>
+          <button id="nextMonth" aria-label="Next month" title="Next month">&#8250;</button>
         </div>
         <button class="topbar-today-btn" id="todayBtn">Today</button>
         <button class="topbar-add-btn" id="topbarAddBtn">
@@ -346,6 +346,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase-sync.js"></script>
+<script src="calc.js"></script>
 <script src="app.js"></script>
 
 <!-- Week picker modal for PDF export -->

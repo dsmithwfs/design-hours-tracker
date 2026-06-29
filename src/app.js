@@ -144,6 +144,9 @@ let _showArchivedJobs = false;
   // ── Offline indicator
   initOfflineDot();
 
+  // ── Backup reminder
+  initBackupNudge();
+
   // ── Web/mobile daily reminder
   if (!window.electronAPI) initWebReminder();
 
@@ -366,9 +369,7 @@ function navigate(dir) {
   }, 150);
 }
 
-function dayTotalHours(entries) {
-  return entries.reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
-}
+// dayTotalHours() now lives in calc.js (loaded before this file).
 
 // ── Stat strip ─────────────────────────────────────────────────────────────
 function renderStatStrip() {
@@ -454,19 +455,7 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Returns a new Date snapped to the Monday of that date's week, at local midnight.
-function mondayOf(date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay(); // 0 = Sun
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
-  return d;
-}
-
-// Local YYYY-MM-DD (avoids the UTC shift of Date.toISOString()).
-function localISODate(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
+// mondayOf() and localISODate() now live in calc.js (loaded before this file).
 
 function jobLabel(j) {
   return j.number ? `${j.number} – ${j.name}` : j.name;
@@ -629,6 +618,24 @@ function renderCalendar() {
       ${holiday ? `<div class="day-holiday">${holiday}</div>` : ''}
       <div class="day-jobs">${chipsHtml}</div>
     `;
+    // ── Accessibility: focusable, labelled, keyboard-navigable cells
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    el.dataset.day = d;
+    const aria = new Date(currentYear, currentMonth, d)
+      .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    el.setAttribute('aria-label',
+      aria + (total > 0 ? `, ${total} hours logged` : ', no hours') + (holiday ? `, ${holiday}` : ''));
+    el.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); selectDate(key); return; }
+      const moves = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+      if (moves[ev.key] !== undefined) {
+        ev.preventDefault();
+        const target = grid.querySelector(`.cal-day[data-day="${d + moves[ev.key]}"]`);
+        if (target) target.focus();
+      }
+    });
+
     el.addEventListener('click', () => selectDate(key));
     if (dayEntries.length) {
       el.addEventListener('mouseenter', () => showCalPopup(el, key, dayEntries));
@@ -870,40 +877,7 @@ function renderSummary() {
 // Special entries (PTO/HOL/TRG/MTG/BRV) are collected separately and don't
 // count toward the 40h threshold.
 // Returns { byJob, byRow, special }
-function computeWeekRtOt(weekKeys, allEntries) {
-  let running = 0;
-  const byJob    = {};                              // jobName → {rt[7], ot[7]}
-  const byRow    = {};                              // "job||cc" → {jobLabel,costCode,rt[7],ot[7]}
-  const special  = { MTG:[0,0,0,0,0,0,0], TRG:[0,0,0,0,0,0,0],
-                     HOL:[0,0,0,0,0,0,0], PTO:[0,0,0,0,0,0,0], BRV:[0,0,0,0,0,0,0] };
-
-  weekKeys.forEach((key, dayIdx) => {
-    (allEntries[key] || []).forEach(e => {
-      const h = parseFloat(e.hours) || 0;
-
-      if (e.type && special[e.type] !== undefined) {
-        special[e.type][dayIdx] += h;
-        return;
-      }
-
-      const cc  = e.costCode || 'Overhead';
-      const rtH = Math.min(h, Math.max(0, 40 - running));
-      const otH = h - rtH;
-      running  += h;
-
-      if (!byJob[e.job]) byJob[e.job] = { rt:[0,0,0,0,0,0,0], ot:[0,0,0,0,0,0,0] };
-      byJob[e.job].rt[dayIdx] += rtH;
-      byJob[e.job].ot[dayIdx] += otH;
-
-      const rk = `${e.job}||${cc}`;
-      if (!byRow[rk]) byRow[rk] = { jobLabel: e.job, costCode: cc, rt:[0,0,0,0,0,0,0], ot:[0,0,0,0,0,0,0] };
-      byRow[rk].rt[dayIdx] += rtH;
-      byRow[rk].ot[dayIdx] += otH;
-    });
-  });
-
-  return { byJob, byRow, special };
-}
+// computeWeekRtOt() now lives in calc.js (loaded before this file).
 
 // ── Weekly Summary ─────────────────────────────────────────────────────────
 function renderWeeklySummary() {
@@ -2341,7 +2315,26 @@ function exportBackup() {
   };
   const date = localISODate(new Date());
   download(`dht-backup-${date}.json`, JSON.stringify(backup, null, 2), 'application/json');
+  localStorage.setItem('dht_last_backup', String(Date.now()));
   showToast(`Backup saved: dht-backup-${date}.json`);
+}
+
+// Gentle reminder to export a backup if it's been a while (and there's data
+// worth losing). Sync to the cloud covers most cases, but a local export is
+// the user's own safety net.
+function initBackupNudge() {
+  const DAYS = 14;
+  const hasData = Object.keys(JSON.parse(localStorage.getItem('dht_entries') || '{}')).length > 0;
+  if (!hasData) return;
+  const last = parseInt(localStorage.getItem('dht_last_backup') || '0', 10);
+  const ageDays = (Date.now() - last) / 86400000;
+  if (last && ageDays < DAYS) return;
+  // Don't nag on the very first launch; wait until there's a real gap.
+  if (!last) { localStorage.setItem('dht_last_backup', String(Date.now())); return; }
+  setTimeout(() => {
+    showToast('It\'s been a while since your last backup.', 8000,
+      { label: 'Back up now', fn: exportBackup });
+  }, 4000);
 }
 
 function importBackup() {

@@ -53,7 +53,13 @@
       localStorage.setItem('dht_theme', data.theme);
       document.documentElement.setAttribute('data-theme', data.theme);
       var p = document.getElementById('themePicker');
-      if (p) p.value = data.theme;
+      if (p) {
+        p.value = data.theme;
+        // Keep the custom-select display label in sync
+        var wrap = p.closest('.cs-wrap');
+        var disp = wrap && wrap.querySelector('.cs-display');
+        if (disp) disp.textContent = p.options[p.selectedIndex]?.text || '';
+      }
     }
     ['renderCalendar','renderSummary','renderWeeklySummary','renderJobsList','renderRates','renderNotes']
       .forEach(function (fn) { if (typeof W[fn] === 'function') W[fn](); });
