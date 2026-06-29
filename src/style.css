@@ -398,13 +398,14 @@ body {
 .cal-day.selected { border-color: var(--primary); box-shadow: 0 0 0 1.5px var(--primary); }
 .cal-day:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; z-index: 1; }
 
-/* Heat map intensities */
-.cal-day.hm-1 { background: #E6F1FB; }
-.cal-day.hm-2 { background: #B5D4F4; }
-.cal-day.hm-3 { background: #85B7EB; }
-.legend-sq.hm-1 { background: #E6F1FB; border: 1px solid var(--border); }
-.legend-sq.hm-2 { background: #B5D4F4; }
-.legend-sq.hm-3 { background: #85B7EB; }
+/* Heat map intensities — derived from the active theme's --primary so cells
+   tint correctly in light AND dark themes (blended into the card surface). */
+.cal-day.hm-1 { background: color-mix(in srgb, var(--primary) 14%, var(--surface)); }
+.cal-day.hm-2 { background: color-mix(in srgb, var(--primary) 28%, var(--surface)); }
+.cal-day.hm-3 { background: color-mix(in srgb, var(--primary) 38%, var(--surface)); }
+.legend-sq.hm-1 { background: color-mix(in srgb, var(--primary) 14%, var(--surface)); border: 1px solid var(--border); }
+.legend-sq.hm-2 { background: color-mix(in srgb, var(--primary) 28%, var(--surface)); }
+.legend-sq.hm-3 { background: color-mix(in srgb, var(--primary) 38%, var(--surface)); }
 
 /* Today highlight */
 .cal-day.today { background: var(--primary) !important; border-color: var(--primary); box-shadow: 0 2px 10px rgba(0,0,0,.14); }
@@ -413,9 +414,6 @@ body {
 .cal-day.today .day-holiday { color: rgba(255,255,255,.75); }
 
 .day-num { font-size: 13px; font-weight: 700; line-height: 1; color: var(--text); }
-.cal-day.hm-1 .day-num { color: #185FA5; }
-.cal-day.hm-2 .day-num { color: #0C447C; }
-.cal-day.hm-3 .day-num { color: #042C53; }
 .day-hours { font-size: 10px; font-weight: 600; color: inherit; opacity: .9; line-height: 1; }
 .day-holiday { font-size: .58rem; color: var(--holiday, #c0392b); font-weight: 600; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; line-height: 1.2; }
 .cal-day.holiday .day-num { color: var(--holiday, #c0392b); }
@@ -462,12 +460,6 @@ body {
   opacity: .9;
   font-size: 9px;
 }
-.cal-day.hm-1 .job-chip-name,
-.cal-day.hm-1 .job-chip-hours,
-.cal-day.hm-2 .job-chip-name,
-.cal-day.hm-2 .job-chip-hours,
-.cal-day.hm-3 .job-chip-name,
-.cal-day.hm-3 .job-chip-hours { color: #1a2a3a; opacity: 1; }
 .cal-day.today .job-chip-name,
 .cal-day.today .job-chip-hours { color: rgba(255,255,255,.95); opacity: 1; }
 
