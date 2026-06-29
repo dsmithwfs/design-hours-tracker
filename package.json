@@ -1,6 +1,6 @@
 {
   "name": "design-hours-tracker",
-  "version": "1.9.3",
+  "version": "2.0.2",
   "description": "Design Hours Tracker for Wiginton Corporation",
   "main": "main.js",
   "scripts": {
@@ -21,6 +21,7 @@
     "productName": "Design Hours Tracker",
     "copyright": "Wiginton Corporation",
     "icon": "src/icon.ico",
+    "artifactName": "Design-Hours-Tracker-${version}.${ext}",
     "win": {
       "target": [
         {
@@ -40,6 +41,7 @@
       "signingHashAlgorithms": null
     },
     "nsis": {
+      "artifactName": "Design-Hours-Tracker-Setup-${version}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
