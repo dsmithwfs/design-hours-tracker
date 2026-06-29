@@ -347,5 +347,22 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase-sync.js"></script>
 <script src="app.js"></script>
+
+<!-- Week picker modal for PDF export -->
+<div id="pdfWeekModal" class="modal-backdrop" style="display:none">
+  <div class="modal-box" style="max-width:340px">
+    <h3 class="modal-title">Export Week to PDF</h3>
+    <p class="modal-sub" id="pdfWeekLabel" style="text-align:center;font-size:1rem;font-weight:600;margin:12px 0 8px"></p>
+    <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px">
+      <button class="btn-icon" id="pdfWeekPrev" title="Previous week">&#8249;</button>
+      <input type="date" id="pdfWeekPicker" style="font-size:.9rem;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer" />
+      <button class="btn-icon" id="pdfWeekNext" title="Next week">&#8250;</button>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn-secondary" id="pdfWeekCancel">Cancel</button>
+      <button class="btn-primary" id="pdfWeekConfirm">Export PDF</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
