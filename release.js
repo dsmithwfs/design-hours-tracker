@@ -37,6 +37,21 @@ if (!token) {
 const run = (cmd, opts = {}) =>
   execSync(cmd, { stdio: 'inherit', env: { ...process.env, GH_TOKEN: token }, ...opts });
 
+// 0. Refuse to release unless the in-app changelog has an entry for the
+//    version we're about to ship. Compute the next version WITHOUT mutating
+//    anything yet, so an abort here leaves the tree untouched.
+const cur = require('./package.json').version.split('.').map(Number);
+const idx = { major: 0, minor: 1, patch: 2 }[bump];
+const next = cur.map((n, i) => i < idx ? n : i === idx ? n + 1 : 0).join('.');
+const appJs = fs.readFileSync(path.join(__dirname, 'src', 'app.js'), 'utf8');
+const topVer = (appJs.match(/const CHANGELOG = \[\s*\{\s*version:\s*'([^']+)'/) || [])[1];
+if (topVer !== next) {
+  console.error(`\n✗ CHANGELOG is not updated for v${next} (top entry is v${topVer || '?'}).`);
+  console.error(`  Add a { version: '${next}', date: '...', changes: [...] } entry at the top of`);
+  console.error(`  src/app.js's CHANGELOG, then re-run. Nothing was changed.`);
+  process.exit(1);
+}
+
 // 1. Keep the mobile webapp's shared files in lock-step with this release.
 console.log('→ Syncing shared code to mobile…');
 run('node sync-shared.js');

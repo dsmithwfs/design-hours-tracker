@@ -3312,6 +3312,40 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.11', date: '2026-06-29', changes: [
+    'Version history now lists every recent update — it had fallen several versions behind',
+  ] },
+  { version: '2.0.10', date: '2026-06-29', changes: [
+    'Calendar day cells now match your selected theme (light, dark, and every accent colour) instead of always showing blue',
+    'Web app: fixed the bottom of the page getting cut off, and the calendar now matches the desktop look (bordered cells, job chips, tidier weekday header)',
+  ] },
+  { version: '2.0.9', date: '2026-06-29', changes: [
+    'Calendar is now keyboard-friendly — arrow keys move between days, Enter opens a day — with screen-reader labels',
+    'Added a gentle reminder to export a backup if it has been a while',
+  ] },
+  { version: '2.0.8', date: '2026-06-29', changes: [
+    'Removed the large empty gap between the weekday names and the calendar cells',
+  ] },
+  { version: '2.0.7', date: '2026-06-29', changes: [
+    'Calendar cells now have clean bordered cards and larger, easier-to-read text',
+  ] },
+  { version: '2.0.6', date: '2026-06-29', changes: [
+    'Update errors no longer pop up on every launch when you are simply offline',
+    'The week-picker title now correctly says PDF or Timesheet depending on what you are exporting',
+    'Dates near midnight no longer roll to the wrong day',
+  ] },
+  { version: '2.0.5', date: '2026-06-29', changes: [
+    'Fixed the "Restart Now" button text being hard to read in dark themes',
+  ] },
+  { version: '2.0.4', date: '2026-06-29', changes: [
+    'Security: job names are now safely escaped in the calendar; hardened external-link handling',
+  ] },
+  { version: '2.0.3', date: '2026-06-29', changes: [
+    'Calendar job text is now readable on the highlighted (busier) days in every theme',
+  ] },
+  { version: '2.0.2', date: '2026-06-29', changes: [
+    'Calendar cells now list each job and its hours, each with its own colour',
+  ] },
   { version: '2.0.1', date: '2026-06-29', changes: [
     'Export to Timesheet now also shows the week picker before exporting',
   ] },
