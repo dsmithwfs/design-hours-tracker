@@ -357,7 +357,8 @@ body {
 .cal-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  grid-auto-rows: 1fr;
+  grid-template-rows: auto;   /* header (day names) row sizes to content */
+  grid-auto-rows: 1fr;        /* week rows share remaining height equally */
   gap: 5px;
   flex: 1;
 }
