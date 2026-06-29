@@ -8,12 +8,22 @@ const { spawn } = require('child_process');
 // ── Auto-updater ───────────────────────────────────────────────────────────
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
+
+// Only surface errors to the user once a download is actually in progress.
+// A bare "can't reach the server" during the routine startup check (e.g. the
+// user is offline) stays console-only instead of nagging on every launch.
+let _updateDownloading = false;
+autoUpdater.on('update-available', () => { _updateDownloading = true; });
 autoUpdater.on('error', err => {
   console.warn('[updater]', err?.message || err);
-  if (mainWindow) mainWindow.webContents.send('update-error', err?.message || String(err));
+  if (mainWindow && _updateDownloading) {
+    _updateDownloading = false;
+    mainWindow.webContents.send('update-error', err?.message || String(err));
+  }
 });
 
 autoUpdater.on('update-downloaded', () => {
+  _updateDownloading = false;
   // Notify renderer — more reliable than native dialog which can appear behind the window
   if (mainWindow) {
     mainWindow.webContents.send('update-downloaded');

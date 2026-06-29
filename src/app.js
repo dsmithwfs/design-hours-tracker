@@ -98,12 +98,7 @@ let _showArchivedJobs = false;
   if (!S.jobs.length) S.jobs = [{ number: '', name: 'General', budget: null }];
 
   // Set week start to Monday of current week
-  const todayForWeek = new Date();
-  todayForWeek.setHours(0,0,0,0);
-  const dow = todayForWeek.getDay(); // 0=Sun
-  const diff = (dow === 0) ? -6 : 1 - dow;
-  currentWeekStart = new Date(todayForWeek);
-  currentWeekStart.setDate(currentWeekStart.getDate() + diff);
+  currentWeekStart = mondayOf(new Date());
 
   document.getElementById('prevMonth').addEventListener('click', () => navigate(-1));
   document.getElementById('nextMonth').addEventListener('click', () => navigate(1));
@@ -131,7 +126,7 @@ let _showArchivedJobs = false;
   document.getElementById('exportBackupBtn').addEventListener('click', exportBackup);
   document.getElementById('importBackupBtn').addEventListener('click', importBackup);
   document.getElementById('exportTimesheetBtn').addEventListener('click', () => {
-    if (window.electronAPI) openWeekPickerModal('Export Timesheet', ws => exportTimesheetJson(ws));
+    if (window.electronAPI) openWeekPickerModal('Export Timesheet', ws => exportTimesheetJson(ws), 'Export Week to Timesheet');
     else exportTimesheetJson();
   });
   document.getElementById('exportPdfBtn')?.addEventListener('click', () => openPdfWeekPicker());
@@ -457,6 +452,20 @@ function jobLifetimeHours(jobName) {
 
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Returns a new Date snapped to the Monday of that date's week, at local midnight.
+function mondayOf(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0 = Sun
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  return d;
+}
+
+// Local YYYY-MM-DD (avoids the UTC shift of Date.toISOString()).
+function localISODate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 function jobLabel(j) {
@@ -2330,7 +2339,7 @@ function exportBackup() {
     jobs: S.jobs,
     rates: S.rates,
   };
-  const date = new Date().toISOString().slice(0, 10);
+  const date = localISODate(new Date());
   download(`dht-backup-${date}.json`, JSON.stringify(backup, null, 2), 'application/json');
   showToast(`Backup saved: dht-backup-${date}.json`);
 }
@@ -2782,8 +2791,9 @@ function scheduleWebReminder(timeStr) {
 }
 
 // ── PDF Export ─────────────────────────────────────────────────────────────────
-function openWeekPickerModal(confirmLabel, onConfirm) {
+function openWeekPickerModal(confirmLabel, onConfirm, title) {
   const modal   = document.getElementById('pdfWeekModal');
+  const titleEl = document.getElementById('pdfWeekTitle');
   const label   = document.getElementById('pdfWeekLabel');
   const picker  = document.getElementById('pdfWeekPicker');
   const prevBtn = document.getElementById('pdfWeekPrev');
@@ -2792,32 +2802,23 @@ function openWeekPickerModal(confirmLabel, onConfirm) {
   const cancel  = document.getElementById('pdfWeekCancel');
 
   confirm.textContent = confirmLabel;
+  if (titleEl && title) titleEl.textContent = title;
 
-  let ws = new Date(currentWeekStart || new Date());
-
-  function toMonday(d) {
-    const day = d.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    const m = new Date(d);
-    m.setDate(m.getDate() + diff);
-    m.setHours(0, 0, 0, 0);
-    return m;
-  }
-  ws = toMonday(ws);
+  let ws = mondayOf(currentWeekStart || new Date());
 
   function updateUI() {
     const end = new Date(ws);
     end.setDate(end.getDate() + 6);
     const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     label.textContent = `${fmt(ws)} – ${fmt(end)}, ${end.getFullYear()}`;
-    picker.value = ws.toISOString().slice(0, 10);
+    picker.value = localISODate(ws);
   }
 
   prevBtn.onclick = () => { ws.setDate(ws.getDate() - 7); updateUI(); };
   nextBtn.onclick = () => { ws.setDate(ws.getDate() + 7); updateUI(); };
   picker.onchange = () => {
     const [y, m, d] = picker.value.split('-').map(Number);
-    ws = toMonday(new Date(y, m - 1, d));
+    ws = mondayOf(new Date(y, m - 1, d));
     updateUI();
   };
 
@@ -2831,7 +2832,7 @@ function openWeekPickerModal(confirmLabel, onConfirm) {
 
 function openPdfWeekPicker() {
   if (!window.electronAPI) return;
-  openWeekPickerModal('Export PDF', ws => exportTimesheetPdf(ws));
+  openWeekPickerModal('Export PDF', ws => exportTimesheetPdf(ws), 'Export Week to PDF');
 }
 
 function exportTimesheetPdf(weekStartOverride) {
@@ -2926,9 +2927,7 @@ function renderDashboard() {
   const weekLabels = [];
   const today = new Date();
   today.setHours(0,0,0,0);
-  const dow0 = today.getDay();
-  const thisMon = new Date(today);
-  thisMon.setDate(today.getDate() - (dow0 === 0 ? 6 : dow0 - 1));
+  const thisMon = mondayOf(today);
 
   for (let w = 7; w >= 0; w--) {
     const mon = new Date(thisMon);
@@ -3235,7 +3234,7 @@ window.renderNotes = function renderNotes() {
 function openNoteEditor(id) {
   const notes = loadNotes();
   const note = id ? notes.find(n => n.id === id) : null;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localISODate(new Date());
   const jobs = S.jobs;
   const m = document.createElement('div');
   m.id = 'noteEditorModal';
