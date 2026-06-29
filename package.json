@@ -64,7 +64,8 @@
     "publish": {
       "provider": "github",
       "owner": "dsmithwfs",
-      "repo": "design-hours-tracker"
+      "repo": "design-hours-tracker",
+      "releaseType": "release"
     }
   }
 }

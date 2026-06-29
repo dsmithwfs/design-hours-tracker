@@ -57,9 +57,11 @@ console.log('→ Syncing shared code to mobile…');
 run('node sync-shared.js');
 
 // 2. Bump version (updates package.json + package-lock; no git tag yet).
+//    Use the precomputed `next` — require('./package.json') would return the
+//    stale cached value here, mislabeling the commit and tag.
 console.log(`→ Bumping ${bump} version…`);
 run(`npm version ${bump} --no-git-tag-version`);
-const version = require('./package.json').version;
+const version = next;
 console.log(`   now v${version}`);
 
 // 3. Commit the bump.
