@@ -140,8 +140,8 @@ let _showArchivedJobs = false;
   document.getElementById('addMileageBtn').addEventListener('click', addMileageEntry);
   document.getElementById('addExpenseBtn').addEventListener('click', addExpenseEntry);
 
-  // ── PDF export button (Electron only)
-  if (window.electronAPI) {
+  // ── PDF export button: Electron (Excel) OR the webapp (pdf-lib in browser)
+  if (window.electronAPI || window.generateTimesheetPdfInBrowser) {
     const pdfBtn = document.getElementById('exportPdfBtn');
     if (pdfBtn) pdfBtn.style.display = '';
   }
@@ -2805,12 +2805,12 @@ function openWeekPickerModal(confirmLabel, onConfirm, title) {
 }
 
 function openPdfWeekPicker() {
-  if (!window.electronAPI) return;
+  if (!window.electronAPI && !window.generateTimesheetPdfInBrowser) return;
   openWeekPickerModal('Export PDF', ws => exportTimesheetPdf(ws), 'Export Week to PDF');
 }
 
 function exportTimesheetPdf(weekStartOverride) {
-  if (!window.electronAPI) return;
+  if (!window.electronAPI && !window.generateTimesheetPdfInBrowser) return;
   const wsDate = weekStartOverride || currentWeekStart;
   if (!wsDate) return;
 
@@ -2847,23 +2847,24 @@ function exportTimesheetPdf(weekStartOverride) {
 
   const btn  = document.getElementById('exportPdfBtn');
   const hint = document.getElementById('timesheetHint');
-  btn.disabled = true;
-  btn.textContent = 'Generating PDF…';
+  const done = msg => {
+    if (btn) { btn.disabled = false; btn.textContent = 'Export to PDF'; }
+    if (hint) { hint.textContent = msg; setTimeout(() => { if (hint) hint.textContent = 'Fills & opens your timesheet automatically'; }, 4000); }
+  };
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating PDF…'; }
 
-  window.electronAPI.fillTimesheetPdf(payload)
-    .then(() => {
-      btn.disabled = false;
-      btn.textContent = 'Export to PDF';
-      if (hint) hint.textContent = 'Done! PDF opened.';
-      setTimeout(() => { if (hint) hint.textContent = 'Fills & opens your timesheet automatically'; }, 4000);
-    })
-    .catch(err => {
-      btn.disabled = false;
-      btn.textContent = 'Export to PDF';
-      if (hint) hint.textContent = 'Error — see alert for details.';
-      setTimeout(() => { if (hint) hint.textContent = 'Fills & opens your timesheet automatically'; }, 4000);
-      alert('PDF export failed:\n\n' + err.message);
-    });
+  if (window.electronAPI) {
+    // Desktop: Excel fills the template and opens the PDF.
+    window.electronAPI.fillTimesheetPdf(payload)
+      .then(() => done('Done! PDF opened.'))
+      .catch(err => { done('Error — see alert.'); alert('PDF export failed:\n\n' + err.message); });
+  } else {
+    // Webapp: fill the official form client-side with pdf-lib and download it.
+    const fname = 'Timesheet-' + weekEndingStr.replace(/\//g, '-') + '.pdf';
+    window.generateTimesheetPdfInBrowser(payload, fname)
+      .then(() => done('Done! PDF downloaded.'))
+      .catch(err => { done('Error.'); alert('PDF export failed:\n\n' + (err && err.message || err)); });
+  }
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -3293,6 +3294,9 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.17', date: '2026-06-29', changes: [
+    'The web app can now export your timesheet to PDF — the same official form as the desktop app, filled in automatically and downloaded (works on your phone too)',
+  ] },
   { version: '2.0.16', date: '2026-06-29', changes: [
     'Switching between tabs now has a smooth fade-in animation',
     'Widened the "Log hours" panel on the right so entries are easier to read',
