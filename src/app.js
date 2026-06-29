@@ -24,6 +24,24 @@ function showToast(msg, duration = 4000, action = null) {
   _toastTimer = setTimeout(() => { toast.className = 'dht-toast'; }, duration);
 }
 
+function showUpdateReadyBanner() {
+  let banner = document.getElementById('dht-update-banner');
+  if (banner) return; // already showing
+  banner = document.createElement('div');
+  banner.id = 'dht-update-banner';
+  banner.innerHTML = `
+    <span>⬇ Update downloaded and ready to install.</span>
+    <button id="dht-update-restart-btn">Restart Now</button>
+    <button id="dht-update-later-btn">Later</button>`;
+  document.body.prepend(banner);
+  document.getElementById('dht-update-restart-btn').addEventListener('click', () => {
+    window.electronAPI.installUpdate();
+  });
+  document.getElementById('dht-update-later-btn').addEventListener('click', () => {
+    banner.remove();
+  });
+}
+
 // ── Theme ──────────────────────────────────────────────────────────────────
 (function initTheme() {
   const saved = localStorage.getItem('dht_theme') || 'light';
@@ -112,8 +130,11 @@ let _showArchivedJobs = false;
   document.getElementById('exportJson').addEventListener('click', exportJson);
   document.getElementById('exportBackupBtn').addEventListener('click', exportBackup);
   document.getElementById('importBackupBtn').addEventListener('click', importBackup);
-  document.getElementById('exportTimesheetBtn').addEventListener('click', () => exportTimesheetJson());
-  document.getElementById('exportPdfBtn')?.addEventListener('click', () => exportTimesheetPdf());
+  document.getElementById('exportTimesheetBtn').addEventListener('click', () => {
+    if (window.electronAPI) openWeekPickerModal('Export Timesheet', ws => exportTimesheetJson(ws));
+    else exportTimesheetJson();
+  });
+  document.getElementById('exportPdfBtn')?.addEventListener('click', () => openPdfWeekPicker());
   document.getElementById('addMileageBtn').addEventListener('click', addMileageEntry);
   document.getElementById('addExpenseBtn').addEventListener('click', addExpenseEntry);
 
@@ -259,6 +280,14 @@ let _showArchivedJobs = false;
         else if (result === 'checking')  showToast('Already checking for updates…', 3000);
         else showToast('Could not check for updates. Check your connection.', 5000);
       });
+    }
+
+    // Listen for update-downloaded from main process and show in-app prompt
+    if (window.electronAPI.onUpdateDownloaded) {
+      window.electronAPI.onUpdateDownloaded(() => showUpdateReadyBanner());
+    }
+    if (window.electronAPI.onUpdateError) {
+      window.electronAPI.onUpdateError(msg => showToast('Update error: ' + msg, 6000));
     }
 
     // Show PDF export in sidebar
@@ -552,7 +581,15 @@ function renderCalendar() {
     const key = `${currentYear}-${String(currentMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const dayEntries = allEntries[key] || [];
     const total = dayTotalHours(dayEntries);
-    const names = [...new Set(dayEntries.map(e => e.job || e.type).filter(Boolean))];
+
+    // Per-job hours for chips
+    const jobHours = {};
+    dayEntries.forEach(e => {
+      const label = e.job || e.type || '';
+      if (!label) return;
+      jobHours[label] = (jobHours[label] || 0) + (parseFloat(e.hours) || 0);
+    });
+    const jobList = Object.entries(jobHours).sort((a, b) => b[1] - a[1]);
 
     const holiday = holidays[key];
     const el = document.createElement('div');
@@ -563,11 +600,24 @@ function renderCalendar() {
       + (key === selectedDate ? ' selected' : '')
       + (holiday ? ' holiday' : '');
     el.dataset.key = key;
+
+    const chipsHtml = jobList.map(([label, hrs]) => {
+      const ci = jobColorIndex(label);
+      const hrsStr = Number.isInteger(hrs) ? hrs : parseFloat(hrs.toFixed(1));
+      return `<div class="job-chip">
+        <div class="job-chip-bar" style="background:var(--job-color-${ci})"></div>
+        <span class="job-chip-name">${label}</span>
+        <span class="job-chip-hours">${hrsStr}h</span>
+      </div>`;
+    }).join('');
+
     el.innerHTML = `
-      <span class="day-num">${d}</span>
-      ${total > 0 ? `<div class="day-hours">${total}h</div>` : ''}
-      <div class="day-jobs">${names.map(j => `<span class="job-dot" style="background:var(--job-color-${jobColorIndex(j)})">${j}</span>`).join('')}</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:2px">
+        <span class="day-num">${d}</span>
+        ${total > 0 ? `<span class="day-hours">${total}h</span>` : ''}
+      </div>
       ${holiday ? `<div class="day-holiday">${holiday}</div>` : ''}
+      <div class="day-jobs">${chipsHtml}</div>
     `;
     el.addEventListener('click', () => selectDate(key));
     if (dayEntries.length) {
@@ -1832,11 +1882,12 @@ function exportJson() {
   download(`hours-${currentYear}-${String(currentMonth+1).padStart(2,'0')}.json`, JSON.stringify(filtered, null, 2), 'application/json');
 }
 
-function exportTimesheetJson() {
-  if (!currentWeekStart) return;
+function exportTimesheetJson(weekStartOverride) {
+  const wsDate = weekStartOverride || currentWeekStart;
+  if (!wsDate) return;
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(currentWeekStart);
+    const d = new Date(wsDate);
     d.setDate(d.getDate() + i);
     return d;
   });
@@ -1911,10 +1962,10 @@ function download(filename, content, mime) {
 
 // ── Theme Transition & Preview ─────────────────────────────────────────────
 function applyThemeWithAnimation(theme) {
-  const bar  = document.querySelector('.theme-bar');
-  const rect = bar.getBoundingClientRect();
-  const ox   = rect.left + rect.width  / 2;
-  const oy   = rect.top  + rect.height / 2;
+  const bar  = document.querySelector('.theme-bar') || document.getElementById('themePicker');
+  const rect = bar ? bar.getBoundingClientRect() : null;
+  const ox   = rect ? rect.left + rect.width  / 2 : window.innerWidth  / 2;
+  const oy   = rect ? rect.top  + rect.height / 2 : window.innerHeight / 2;
 
   const newBg = THEME_COLORS[theme]?.bg || '#f5f6fa';
 
@@ -2730,12 +2781,65 @@ function scheduleWebReminder(timeStr) {
 }
 
 // ── PDF Export ─────────────────────────────────────────────────────────────────
-function exportTimesheetPdf() {
+function openWeekPickerModal(confirmLabel, onConfirm) {
+  const modal   = document.getElementById('pdfWeekModal');
+  const label   = document.getElementById('pdfWeekLabel');
+  const picker  = document.getElementById('pdfWeekPicker');
+  const prevBtn = document.getElementById('pdfWeekPrev');
+  const nextBtn = document.getElementById('pdfWeekNext');
+  const confirm = document.getElementById('pdfWeekConfirm');
+  const cancel  = document.getElementById('pdfWeekCancel');
+
+  confirm.textContent = confirmLabel;
+
+  let ws = new Date(currentWeekStart || new Date());
+
+  function toMonday(d) {
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const m = new Date(d);
+    m.setDate(m.getDate() + diff);
+    m.setHours(0, 0, 0, 0);
+    return m;
+  }
+  ws = toMonday(ws);
+
+  function updateUI() {
+    const end = new Date(ws);
+    end.setDate(end.getDate() + 6);
+    const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    label.textContent = `${fmt(ws)} – ${fmt(end)}, ${end.getFullYear()}`;
+    picker.value = ws.toISOString().slice(0, 10);
+  }
+
+  prevBtn.onclick = () => { ws.setDate(ws.getDate() - 7); updateUI(); };
+  nextBtn.onclick = () => { ws.setDate(ws.getDate() + 7); updateUI(); };
+  picker.onchange = () => {
+    const [y, m, d] = picker.value.split('-').map(Number);
+    ws = toMonday(new Date(y, m - 1, d));
+    updateUI();
+  };
+
+  cancel.onclick  = () => { modal.style.display = 'none'; };
+  confirm.onclick = () => { modal.style.display = 'none'; onConfirm(new Date(ws)); };
+  modal.onclick   = e => { if (e.target === modal) modal.style.display = 'none'; };
+
+  updateUI();
+  modal.style.display = 'flex';
+}
+
+function openPdfWeekPicker() {
   if (!window.electronAPI) return;
-  if (!currentWeekStart) return;
+  openWeekPickerModal('Export PDF', ws => exportTimesheetPdf(ws));
+}
+
+function exportTimesheetPdf(weekStartOverride) {
+  if (!window.electronAPI) return;
+  const wsDate = weekStartOverride || currentWeekStart;
+  if (!wsDate) return;
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(currentWeekStart);
+    const d = new Date(wsDate);
     d.setDate(d.getDate() + i);
     return d;
   });
@@ -3215,6 +3319,33 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.1', date: '2026-06-29', changes: [
+    'Export to Timesheet now also shows the week picker before exporting',
+  ] },
+  { version: '2.0.0', date: '2026-06-29', changes: [
+    'Fixed auto-updater download — installer filename now matches what latest.yml expects (no more 404 errors on update)',
+  ] },
+  { version: '1.9.9', date: '2026-06-29', changes: [
+    'Fixed theme switching — was silently crashing because the old theme bar element no longer exists in the redesigned layout',
+  ] },
+  { version: '1.9.8', date: '2026-06-29', changes: [
+    'PDF export now prompts for week selection — use arrows or the date picker to choose any week before exporting',
+  ] },
+  { version: '1.9.7', date: '2026-06-29', changes: [
+    'In-app update banner — when an update downloads, a "Restart Now / Later" bar appears inside the app window instead of a system dialog',
+  ] },
+  { version: '1.9.6', date: '2026-06-29', changes: [
+    'Fixed PDF export failing on portable/updated installs — scripts now always resolve correctly regardless of install method',
+  ] },
+  { version: '1.9.5', date: '2026-06-29', changes: [
+    'Fixed update dialog — now appears on top of the app window when an update is ready to install',
+  ] },
+  { version: '1.9.4', date: '2026-06-29', changes: [
+    'Full UI redesign — new sidebar navigation, heat map calendar, stats strip, and improved job panel layout',
+    'Map view overhauled — Leaflet map now fills the full window',
+    'Calendar cells now expand to fill available height',
+    'Settings panel repositioned and no longer overlaps content',
+  ] },
   { version: '1.9.3', date: '2026-06-25', changes: [
     'Updated in-app Help guide: covers PDF export, job archiving/duplicate, Dashboard tab, and daily reminders',
   ] },
