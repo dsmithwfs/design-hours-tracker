@@ -604,9 +604,10 @@ function renderCalendar() {
     const chipsHtml = jobList.map(([label, hrs]) => {
       const ci = jobColorIndex(label);
       const hrsStr = Number.isInteger(hrs) ? hrs : parseFloat(hrs.toFixed(1));
+      const display = SPECIAL_LABELS[label] || label;
       return `<div class="job-chip">
         <div class="job-chip-bar" style="background:var(--job-color-${ci})"></div>
-        <span class="job-chip-name">${label}</span>
+        <span class="job-chip-name">${esc(display)}</span>
         <span class="job-chip-hours">${hrsStr}h</span>
       </div>`;
     }).join('');

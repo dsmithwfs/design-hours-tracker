@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Notification, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs   = require('fs');
@@ -8,20 +8,24 @@ const { spawn } = require('child_process');
 // ── Auto-updater ───────────────────────────────────────────────────────────
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
-autoUpdater.on('error', err => { console.warn('[updater]', err?.message || err); });
+autoUpdater.on('error', err => {
+  console.warn('[updater]', err?.message || err);
+  if (mainWindow) mainWindow.webContents.send('update-error', err?.message || String(err));
+});
 
 autoUpdater.on('update-downloaded', () => {
-  dialog.showMessageBox({
-    type: 'info',
-    title: 'Update Ready',
-    message: 'A new version of Design Hours Tracker has been downloaded.',
-    detail: 'Restart now to apply the update, or it will install automatically on next launch.',
-    buttons: ['Restart Now', 'Later'],
-    defaultId: 0,
-  }).then(({ response }) => {
-    if (response === 0) autoUpdater.quitAndInstall();
-  });
+  // Notify renderer — more reliable than native dialog which can appear behind the window
+  if (mainWindow) {
+    mainWindow.webContents.send('update-downloaded');
+  }
 });
+
+// Called from renderer when user clicks "Restart Now"
+ipcMain.handle('install-update', () => {
+  autoUpdater.quitAndInstall();
+});
+
+let mainWindow = null;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -39,6 +43,23 @@ function createWindow() {
 
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
   win.setMenuBarVisibility(false);
+
+  // Security hardening: never open uncontrolled child windows, and never let the
+  // renderer navigate away from the bundled app files. External http(s) links
+  // (e.g. the Leaflet/OpenStreetMap attribution) open in the user's real browser.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('file://')) {
+      event.preventDefault();
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    }
+  });
+
+  mainWindow = win;
+  win.on('closed', () => { mainWindow = null; });
 }
 
 // ── Settings persistence ───────────────────────────────────────────────────
@@ -138,18 +159,21 @@ function validateTimesheetPayload(p) {
 // IPC: Fill timesheet — write payload to temp JSON, invoke PS1, open result
 ipcMain.handle('fill-timesheet-pdf', async (_event, payload) => {
   validateTimesheetPayload(payload);
-  const tmpJson = path.join(os.tmpdir(), `dht-ts-pdf-${Date.now()}.json`);
+  const ts = Date.now();
+  const tmpJson = path.join(os.tmpdir(), `dht-ts-pdf-${ts}.json`);
   fs.writeFileSync(tmpJson, JSON.stringify(payload, null, 2), 'utf8');
 
-  const root         = app.isPackaged
-    ? path.join(process.resourcesPath, 'app.asar.unpacked')
-    : __dirname;
-  const ps1          = path.join(root, 'scripts', 'fill-timesheet-pdf.ps1');
-  const templatePath = path.join(root, 'assets', 'Designer Timesheet.xlsx');
+  // Read scripts/assets from __dirname (works inside asar) and write to real temp files
+  const srcRoot      = __dirname;
+  const tmpPs1       = path.join(os.tmpdir(), `dht-fill-pdf-${ts}.ps1`);
+  fs.writeFileSync(tmpPs1, fs.readFileSync(path.join(srcRoot, 'scripts', 'fill-timesheet-pdf.ps1')), 'utf8');
+
+  const assetRoot    = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked') : __dirname;
+  const templatePath = path.join(assetRoot, 'assets', 'Designer Timesheet.xlsx');
 
   return new Promise((resolve, reject) => {
     const proc = spawn('powershell.exe', [
-      '-ExecutionPolicy', 'Bypass', '-NonInteractive', '-File', ps1,
+      '-ExecutionPolicy', 'Bypass', '-NonInteractive', '-File', tmpPs1,
       '-JsonPath', tmpJson, '-TemplatePath', templatePath,
     ]);
     let stdout = '', stderr = '';
@@ -157,6 +181,7 @@ ipcMain.handle('fill-timesheet-pdf', async (_event, payload) => {
     proc.stderr.on('data', d => { stderr += d.toString(); });
     proc.on('close', code => {
       try { fs.unlinkSync(tmpJson); } catch {}
+      try { fs.unlinkSync(tmpPs1); } catch {}
       if (code === 0) {
         const match = stdout.match(/Saved: (.+\.pdf)/);
         resolve({ ok: true, savedPath: match ? match[1].trim() : null });
@@ -169,20 +194,22 @@ ipcMain.handle('fill-timesheet-pdf', async (_event, payload) => {
 
 ipcMain.handle('fill-timesheet', async (_event, payload) => {
   validateTimesheetPayload(payload);
-  const tmpJson = path.join(os.tmpdir(), `dht-timesheet-${Date.now()}.json`);
+  const ts = Date.now();
+  const tmpJson = path.join(os.tmpdir(), `dht-timesheet-${ts}.json`);
   fs.writeFileSync(tmpJson, JSON.stringify(payload, null, 2), 'utf8');
 
-  const root         = app.isPackaged
-    ? path.join(process.resourcesPath, 'app.asar.unpacked')
-    : __dirname;
-  const ps1          = path.join(root, 'scripts', 'fill-timesheet.ps1');
-  const templatePath = path.join(root, 'assets', 'Designer Timesheet.xlsx');
+  const srcRoot      = __dirname;
+  const tmpPs1       = path.join(os.tmpdir(), `dht-fill-ts-${ts}.ps1`);
+  fs.writeFileSync(tmpPs1, fs.readFileSync(path.join(srcRoot, 'scripts', 'fill-timesheet.ps1')), 'utf8');
+
+  const assetRoot    = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked') : __dirname;
+  const templatePath = path.join(assetRoot, 'assets', 'Designer Timesheet.xlsx');
 
   return new Promise((resolve, reject) => {
     const proc = spawn('powershell.exe', [
       '-ExecutionPolicy', 'Bypass',
       '-NonInteractive',
-      '-File', ps1,
+      '-File', tmpPs1,
       '-JsonPath', tmpJson,
       '-TemplatePath', templatePath,
     ]);
@@ -193,6 +220,7 @@ ipcMain.handle('fill-timesheet', async (_event, payload) => {
 
     proc.on('close', code => {
       try { fs.unlinkSync(tmpJson); } catch {}
+      try { fs.unlinkSync(tmpPs1); } catch {}
       if (code === 0) {
         // Extract saved path from script output
         const match = stdout.match(/Saved: (.+\.xlsx)/);
