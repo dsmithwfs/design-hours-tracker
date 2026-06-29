@@ -3312,6 +3312,9 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.12', date: '2026-06-29', changes: [
+    'Web app on phones: the sidebar is now a slide-out menu (tap ☰) and the calendar fills the screen — no more squished, hard-to-read layout',
+  ] },
   { version: '2.0.11', date: '2026-06-29', changes: [
     'Version history now lists every recent update — it had fallen several versions behind',
   ] },
