@@ -96,6 +96,35 @@ const S = {
 let currentYear, currentMonth, selectedDate = null, currentWeekStart = null;
 let _showArchivedJobs = false;
 
+// Two rates every designer always has: the contract base design rate and the
+// designer's actual hourly pay. Seeded automatically and not deletable; the
+// designer just fills in the values.
+const DEFAULT_RATES = [
+  { id: 'base_design', label: 'Base Design Rate', value: 0, unit: '$/hr' },
+  { id: 'actual',      label: 'Actual Rate',      value: 0, unit: '$/hr' },
+];
+function isDefaultRate(r) { return !!r && DEFAULT_RATES.some(d => d.id === r.id); }
+function ensureDefaultRates() {
+  const rates = S.rates;
+  let changed = false;
+  DEFAULT_RATES.forEach(def => {
+    let r = rates.find(x => x.id === def.id);
+    if (!r) {                                   // adopt a legacy rate added by hand
+      r = rates.find(x => !x.id && x.label === def.label);
+      if (r) { r.id = def.id; changed = true; }
+    }
+    if (!r) { rates.push({ ...def }); changed = true; }
+  });
+  // Keep the two defaults at the top, in order, followed by any custom rates.
+  const ordered = [
+    ...DEFAULT_RATES.map(d => rates.find(r => r.id === d.id)).filter(Boolean),
+    ...rates.filter(r => !isDefaultRate(r)),
+  ];
+  if (changed || ordered.length !== rates.length || ordered.some((r, i) => r !== rates[i])) {
+    S.rates = ordered;
+  }
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 (function init() {
   const now = new Date();
@@ -103,6 +132,7 @@ let _showArchivedJobs = false;
   currentMonth = now.getMonth();
 
   if (!S.jobs.length) S.jobs = [{ number: '', name: 'General', budget: null }];
+  ensureDefaultRates();
 
   // Set week start to Monday of current week
   currentWeekStart = mondayOf(new Date());
@@ -1624,21 +1654,24 @@ function confirmJobImport(rows, map) {
 
 // ── Rates & Calcs ──────────────────────────────────────────────────────────
 function renderRates() {
+  ensureDefaultRates();
   const rates = S.rates;
   const list  = document.getElementById('ratesList');
 
   if (!rates.length) {
     list.innerHTML = '<p class="placeholder">No rates defined yet.</p>';
   } else {
-    list.innerHTML = rates.map((r, i) => `
+    list.innerHTML = rates.map((r, i) => {
+      const locked = isDefaultRate(r);
+      return `
       <div class="rate-card">
         <div class="rate-card-main">
           <span class="rate-label">${esc(r.label)}</span>
           <span class="rate-value">${r.unit === '$/hr' || r.unit === '$/day' ? '$' : ''}${parseFloat(r.value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="rate-unit">${esc(r.unit)}</span></span>
-          <button class="btn btn-danger" data-action="rm-rate" data-idx="${i}">✕</button>
+          ${locked ? '' : `<button class="btn btn-danger" data-action="rm-rate" data-idx="${i}">✕</button>`}
         </div>
         <div class="rate-edit-row">
-          <input type="text"   class="rate-edit-label" data-i="${i}" value="${esc(r.label)}" placeholder="Label" />
+          <input type="text" class="rate-edit-label" data-i="${i}" value="${esc(r.label)}" placeholder="Label"${locked ? ' readonly title="Built-in rate — name is fixed"' : ''} />
           <input type="number" class="rate-edit-value" data-i="${i}" value="${r.value}" min="0" step="0.01" placeholder="Value" />
           <select class="rate-edit-unit" data-i="${i}">
             ${['$/hr','$/day','%','multiplier','custom'].map(u =>
@@ -1648,7 +1681,7 @@ function renderRates() {
           <button class="btn btn-ghost btn-sm" data-action="save-rate" data-idx="${i}">Save</button>
         </div>
       </div>
-    `).join('');
+    `;}).join('');
   }
 
   applyCustomSelects(document.getElementById('tab-rates'));
@@ -1810,7 +1843,10 @@ function saveRate(i) {
 
   if (!label || isNaN(value)) return;
   const rates = S.rates;
-  rates[i] = { label, value, unit };
+  // Preserve a built-in rate's id and fixed label.
+  rates[i] = isDefaultRate(rates[i])
+    ? { ...rates[i], value, unit }
+    : { label, value, unit };
   S.rates = rates;
   renderRates();
   renderSummary();
@@ -1818,6 +1854,7 @@ function saveRate(i) {
 
 function removeRate(i) {
   const rates = S.rates;
+  if (isDefaultRate(rates[i])) return;   // built-in rates can't be deleted
   rates.splice(i, 1);
   S.rates = rates;
   renderRates();
@@ -3294,6 +3331,9 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.19', date: '2026-06-29', changes: [
+    'Rates & calcs now always includes "Base Design Rate" (set by the contract) and "Actual Rate" (your hourly pay) — just fill in the values, no need to add them',
+  ] },
   { version: '2.0.18', date: '2026-06-29', changes: [
     'Fixed the web app timesheet PDF — the RT/OT totals now sit correctly inside their cells (they were drifting up and to the side)',
   ] },
