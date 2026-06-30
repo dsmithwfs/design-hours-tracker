@@ -3294,6 +3294,9 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.18', date: '2026-06-29', changes: [
+    'Fixed the web app timesheet PDF — the RT/OT totals now sit correctly inside their cells (they were drifting up and to the side)',
+  ] },
   { version: '2.0.17', date: '2026-06-29', changes: [
     'The web app can now export your timesheet to PDF — the same official form as the desktop app, filled in automatically and downloaded (works on your phone too)',
   ] },
