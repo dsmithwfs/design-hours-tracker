@@ -3331,6 +3331,9 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.20', date: '2026-07-06', changes: [
+    'Fixed the web app menu button on phones — tapping ☰ now opens the slide-out menu again (a security update had stopped it from working)',
+  ] },
   { version: '2.0.19', date: '2026-06-29', changes: [
     'Rates & calcs now always includes "Base Design Rate" (set by the contract) and "Actual Rate" (your hourly pay) — just fill in the values, no need to add them',
   ] },
