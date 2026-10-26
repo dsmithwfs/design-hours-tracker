@@ -1019,15 +1019,16 @@ function renderWeeklySummary() {
 }
 
 // ── Mileage ────────────────────────────────────────────────────────────────
-function mileageWeekKey() {
-  if (!currentWeekStart) return null;
-  const sun = new Date(currentWeekStart);
+function mileageWeekKey(weekStart) {
+  const base = weekStart || currentWeekStart;
+  if (!base) return null;
+  const sun = new Date(base);
   sun.setDate(sun.getDate() + 6);
   return toKey(sun);
 }
 
-function getMileageEntries() {
-  const key = mileageWeekKey();
+function getMileageEntries(weekStart) {
+  const key = mileageWeekKey(weekStart);
   if (!key) return [];
   return (S.mileage[key] || []);
 }
@@ -1122,8 +1123,8 @@ function deleteMileageEntry(i) {
 }
 
 // ── Expenses ───────────────────────────────────────────────────────────────
-function getExpenseEntries() {
-  const key = mileageWeekKey();
+function getExpenseEntries(weekStart) {
+  const key = mileageWeekKey(weekStart);
   if (!key) return [];
   return (S.expenses[key] || []);
 }
@@ -1913,8 +1914,8 @@ function exportTimesheetJson(weekStartOverride) {
   const pad2 = n => String(n).padStart(2, '0');
   const weekEndingStr = `${pad2(weekEnding.getMonth()+1)}/${pad2(weekEnding.getDate())}/${weekEnding.getFullYear()}`;
 
-  const mileage      = getMileageEntries().filter(e => parseFloat(e.miles) > 0);
-  const expenses     = getExpenseEntries().filter(e => parseFloat(e.amount) > 0 || e.description);
+  const mileage      = getMileageEntries(wsDate).filter(e => parseFloat(e.miles) > 0);
+  const expenses     = getExpenseEntries(wsDate).filter(e => parseFloat(e.amount) > 0 || e.description);
   const designerName = localStorage.getItem('dht_designer_name') || '';
   const employeeNum  = localStorage.getItem('dht_employee_num')  || '';
   const payload  = { weekEnding: weekEndingStr, jobs: jobRows, special, mileage, expenses, designerName, employeeNum };
@@ -2876,8 +2877,8 @@ function exportTimesheetPdf(weekStartOverride) {
   const pad2 = n => String(n).padStart(2, '0');
   const weekEndingStr = `${pad2(weekEnding.getMonth()+1)}/${pad2(weekEnding.getDate())}/${weekEnding.getFullYear()}`;
 
-  const mileage      = getMileageEntries().filter(e => parseFloat(e.miles) > 0);
-  const expenses     = getExpenseEntries().filter(e => parseFloat(e.amount) > 0 || e.description);
+  const mileage      = getMileageEntries(wsDate).filter(e => parseFloat(e.miles) > 0);
+  const expenses     = getExpenseEntries(wsDate).filter(e => parseFloat(e.amount) > 0 || e.description);
   const designerName = localStorage.getItem('dht_designer_name') || '';
   const employeeNum  = localStorage.getItem('dht_employee_num')  || '';
   const payload      = { weekEnding: weekEndingStr, jobs: jobRows, special, mileage, expenses, designerName, employeeNum };
@@ -3331,6 +3332,9 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.21', date: '2026-10-26', changes: [
+    'Fixed mileage & expenses missing from an exported timesheet when the week picked in the export dialog differed from the week open in the app — they now always come from the week you export',
+  ] },
   { version: '2.0.20', date: '2026-07-06', changes: [
     'Fixed the web app menu button on phones — tapping ☰ now opens the slide-out menu again (a security update had stopped it from working)',
   ] },
