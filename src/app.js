@@ -1041,6 +1041,22 @@ function saveMileageEntries(entries) {
   S.mileage = all;
 }
 
+// Mileage carries its own date. The official timesheet form has no date column,
+// so on export the date is folded into the description cell (see mileageDesc).
+function fmtMileDate(iso) {
+  if (!iso) return '';
+  const p = String(iso).split('-');
+  if (p.length !== 3) return String(iso);
+  const [y, m, d] = p.map(Number);
+  if (!y || !m || !d) return String(iso);
+  return `${m}/${d}/${y}`;
+}
+function mileageDesc(e) {
+  const dt = fmtMileDate(e.date);
+  const desc = (e.description || '').trim();
+  return dt && desc ? `${dt} - ${desc}` : (dt || desc);
+}
+
 function renderMileage() {
   const tbody = document.getElementById('mileageTbody');
   const totalEl = document.getElementById('mileageTotal');
@@ -1052,7 +1068,7 @@ function renderMileage() {
   addBtn.title = atMileageLimit ? 'Maximum 4 mileage entries per week — delete one to add more.' : '';
 
   if (!entries.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="mileage-empty">No mileage entries for this week.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="mileage-empty">No mileage entries for this week.</td></tr>`;
     totalEl.textContent = '$0.00';
     return;
   }
@@ -1063,7 +1079,8 @@ function renderMileage() {
     grandTotal += amt;
     return `<tr>
       <td><input type="text" class="mi-po" data-i="${i}" value="${esc(e.po)}" placeholder="Job # / P.O." /></td>
-      <td><input type="text" class="mi-desc" data-i="${i}" value="${esc(e.description)}" placeholder="Description &amp; date" /></td>
+      <td><input type="date" class="mi-date" data-i="${i}" value="${esc(e.date || '')}" /></td>
+      <td><input type="text" class="mi-desc" data-i="${i}" value="${esc(e.description)}" placeholder="Description" /></td>
       <td><input type="number" class="mi-miles" data-i="${i}" value="${e.miles}" min="0" step="0.1" placeholder="0" style="width:70px" /></td>
       <td><input type="number" class="mi-rate" data-i="${i}" value="${e.rate}" min="0" step="0.001" placeholder="0.670" style="width:70px" /></td>
       <td class="mileage-amount">$${amt.toFixed(2)}</td>
@@ -1075,6 +1092,7 @@ function renderMileage() {
 
   // Wire input changes
   tbody.querySelectorAll('.mi-po').forEach(el => el.addEventListener('change', e => updateMileageField(+e.target.dataset.i, 'po', e.target.value)));
+  tbody.querySelectorAll('.mi-date').forEach(el => el.addEventListener('change', e => updateMileageField(+e.target.dataset.i, 'date', e.target.value)));
   tbody.querySelectorAll('.mi-desc').forEach(el => el.addEventListener('change', e => updateMileageField(+e.target.dataset.i, 'description', e.target.value)));
   tbody.querySelectorAll('.mi-miles').forEach(el => el.addEventListener('input', e => updateMileageField(+e.target.dataset.i, 'miles', e.target.value)));
   tbody.querySelectorAll('.mi-rate').forEach(el => el.addEventListener('input', e => updateMileageField(+e.target.dataset.i, 'rate', e.target.value)));
@@ -1084,7 +1102,7 @@ function renderMileage() {
 function addMileageEntry() {
   const entries = getMileageEntries();
   if (entries.length >= 4) return;
-  entries.push({ po: '', description: '', miles: '', rate: '0.670' });
+  entries.push({ po: '', date: '', description: '', miles: '', rate: '0.670' });
   saveMileageEntries(entries);
   renderMileage();
 }
@@ -1914,7 +1932,8 @@ function exportTimesheetJson(weekStartOverride) {
   const pad2 = n => String(n).padStart(2, '0');
   const weekEndingStr = `${pad2(weekEnding.getMonth()+1)}/${pad2(weekEnding.getDate())}/${weekEnding.getFullYear()}`;
 
-  const mileage      = getMileageEntries(wsDate).filter(e => parseFloat(e.miles) > 0);
+  const mileage      = getMileageEntries(wsDate).filter(e => parseFloat(e.miles) > 0)
+    .map(e => ({ po: e.po, description: mileageDesc(e), miles: e.miles, rate: e.rate }));
   const expenses     = getExpenseEntries(wsDate).filter(e => parseFloat(e.amount) > 0 || e.description);
   const designerName = localStorage.getItem('dht_designer_name') || '';
   const employeeNum  = localStorage.getItem('dht_employee_num')  || '';
@@ -2877,7 +2896,8 @@ function exportTimesheetPdf(weekStartOverride) {
   const pad2 = n => String(n).padStart(2, '0');
   const weekEndingStr = `${pad2(weekEnding.getMonth()+1)}/${pad2(weekEnding.getDate())}/${weekEnding.getFullYear()}`;
 
-  const mileage      = getMileageEntries(wsDate).filter(e => parseFloat(e.miles) > 0);
+  const mileage      = getMileageEntries(wsDate).filter(e => parseFloat(e.miles) > 0)
+    .map(e => ({ po: e.po, description: mileageDesc(e), miles: e.miles, rate: e.rate }));
   const expenses     = getExpenseEntries(wsDate).filter(e => parseFloat(e.amount) > 0 || e.description);
   const designerName = localStorage.getItem('dht_designer_name') || '';
   const employeeNum  = localStorage.getItem('dht_employee_num')  || '';
@@ -3332,6 +3352,9 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.22', date: '2026-10-26', changes: [
+    'Mileage now has its own Date field instead of squeezing the date into the description — the date is added in front of the description on the exported timesheet',
+  ] },
   { version: '2.0.21', date: '2026-10-26', changes: [
     'Fixed mileage & expenses missing from an exported timesheet when the week picked in the export dialog differed from the week open in the app — they now always come from the week you export',
   ] },

@@ -1036,6 +1036,7 @@ textarea { resize: vertical; min-height: 54px; }
 .mileage-section {
   margin-top: 16px; padding-top: 14px;
   border-top: 1px solid var(--border);
+  overflow-x: auto;   /* narrow screens: let the wide table scroll instead of clipping */
 }
 .mileage-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -1051,13 +1052,16 @@ textarea { resize: vertical; min-height: 54px; }
 }
 .mileage-table td { padding: 4px 4px; vertical-align: middle; }
 .mileage-table input[type="text"],
-.mileage-table input[type="number"] {
+.mileage-table input[type="number"],
+.mileage-table input[type="date"] {
   width: 100%; font-size: .82rem; padding: 4px 6px;
   border: 1px solid var(--border); border-radius: 5px;
   background: var(--bg); color: var(--text); outline: none;
 }
+.mileage-table input[type="date"] { min-width: 120px; color-scheme: light dark; }
 .mileage-table input[type="text"]:focus,
-.mileage-table input[type="number"]:focus { border-color: var(--primary); }
+.mileage-table input[type="number"]:focus,
+.mileage-table input[type="date"]:focus { border-color: var(--primary); }
 .mileage-table td.mileage-amount { text-align: right; font-weight: 600; padding-right: 8px; white-space: nowrap; }
 .mileage-table td.mileage-del { text-align: center; width: 28px; }
 .mileage-del-btn {
