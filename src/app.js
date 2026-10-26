@@ -1166,7 +1166,7 @@ function renderExpenses() {
   addBtn.title = atExpenseLimit ? 'Maximum 3 expense entries per week — delete one to add more.' : '';
 
   if (!entries.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="mileage-empty">No expense entries for this week.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="mileage-empty">No expense entries for this week.</td></tr>`;
     totalEl.textContent = '$0.00';
     return;
   }
@@ -1177,7 +1177,8 @@ function renderExpenses() {
     grandTotal += amt;
     return `<tr>
       <td><input type="text" class="ex-po" data-i="${i}" value="${esc(e.po)}" placeholder="Job # / P.O." /></td>
-      <td><input type="text" class="ex-desc" data-i="${i}" value="${esc(e.description)}" placeholder="Description &amp; date" /></td>
+      <td><input type="date" class="ex-date" data-i="${i}" value="${esc(e.date || '')}" /></td>
+      <td><input type="text" class="ex-desc" data-i="${i}" value="${esc(e.description)}" placeholder="Description" /></td>
       <td><input type="number" class="ex-amt" data-i="${i}" value="${e.amount}" min="0" step="0.01" placeholder="0.00" style="width:90px" /></td>
       <td class="mileage-del"><button class="mileage-del-btn" data-i="${i}" title="Remove">&#x2715;</button></td>
     </tr>`;
@@ -1186,6 +1187,7 @@ function renderExpenses() {
   totalEl.textContent = `$${grandTotal.toFixed(2)}`;
 
   tbody.querySelectorAll('.ex-po').forEach(el   => el.addEventListener('change', e => updateExpenseField(+e.target.dataset.i, 'po', e.target.value)));
+  tbody.querySelectorAll('.ex-date').forEach(el  => el.addEventListener('change', e => updateExpenseField(+e.target.dataset.i, 'date', e.target.value)));
   tbody.querySelectorAll('.ex-desc').forEach(el  => el.addEventListener('change', e => updateExpenseField(+e.target.dataset.i, 'description', e.target.value)));
   tbody.querySelectorAll('.ex-amt').forEach(el   => el.addEventListener('input',  e => updateExpenseField(+e.target.dataset.i, 'amount', e.target.value)));
   tbody.querySelectorAll('.mileage-del-btn').forEach(el => el.addEventListener('click', e => deleteExpenseEntry(+e.target.dataset.i)));
@@ -1194,7 +1196,7 @@ function renderExpenses() {
 function addExpenseEntry() {
   const entries = getExpenseEntries();
   if (entries.length >= 3) return;
-  entries.push({ po: '', description: '', amount: '' });
+  entries.push({ po: '', date: '', description: '', amount: '' });
   saveExpenseEntries(entries);
   renderExpenses();
 }
@@ -1934,7 +1936,8 @@ function exportTimesheetJson(weekStartOverride) {
 
   const mileage      = getMileageEntries(wsDate).filter(e => parseFloat(e.miles) > 0)
     .map(e => ({ po: e.po, description: mileageDesc(e), miles: e.miles, rate: e.rate }));
-  const expenses     = getExpenseEntries(wsDate).filter(e => parseFloat(e.amount) > 0 || e.description);
+  const expenses     = getExpenseEntries(wsDate).filter(e => parseFloat(e.amount) > 0 || e.description)
+    .map(e => ({ po: e.po, description: mileageDesc(e), amount: e.amount }));
   const designerName = localStorage.getItem('dht_designer_name') || '';
   const employeeNum  = localStorage.getItem('dht_employee_num')  || '';
   const payload  = { weekEnding: weekEndingStr, jobs: jobRows, special, mileage, expenses, designerName, employeeNum };
@@ -2898,7 +2901,8 @@ function exportTimesheetPdf(weekStartOverride) {
 
   const mileage      = getMileageEntries(wsDate).filter(e => parseFloat(e.miles) > 0)
     .map(e => ({ po: e.po, description: mileageDesc(e), miles: e.miles, rate: e.rate }));
-  const expenses     = getExpenseEntries(wsDate).filter(e => parseFloat(e.amount) > 0 || e.description);
+  const expenses     = getExpenseEntries(wsDate).filter(e => parseFloat(e.amount) > 0 || e.description)
+    .map(e => ({ po: e.po, description: mileageDesc(e), amount: e.amount }));
   const designerName = localStorage.getItem('dht_designer_name') || '';
   const employeeNum  = localStorage.getItem('dht_employee_num')  || '';
   const payload      = { weekEnding: weekEndingStr, jobs: jobRows, special, mileage, expenses, designerName, employeeNum };
@@ -3352,6 +3356,9 @@ function toggleJobNotes(idx) {
 
 // ── Changelog ──────────────────────────────────────────────────────────────
 const CHANGELOG = [
+  { version: '2.0.23', date: '2026-10-26', changes: [
+    'Expenses now has its own Date field too (matching mileage) — the date is added in front of the description on the exported timesheet',
+  ] },
   { version: '2.0.22', date: '2026-10-26', changes: [
     'Mileage now has its own Date field instead of squeezing the date into the description — the date is added in front of the description on the exported timesheet',
   ] },
